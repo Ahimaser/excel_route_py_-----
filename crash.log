@@ -1,0 +1,523 @@
+2026-02-28 18:49:01,215 [INFO] === Запуск Excel Route Manager ===
+2026-02-28 18:49:01,272 [INFO] Переход на стартовую страницу
+2026-02-28 18:49:01,273 [DEBUG] navigate -> home
+2026-02-28 18:49:01,273 [DEBUG] Создаём страницу: home
+2026-02-28 18:49:02,311 [DEBUG] Страница 'home' создана, idx=0
+2026-02-28 18:49:02,479 [INFO] Окно показано, запускаем event loop
+2026-02-28 18:49:08,334 [DEBUG] navigate -> preview_general
+2026-02-28 18:49:08,334 [DEBUG] Создаём страницу: preview_general
+2026-02-28 18:49:08,424 [DEBUG] Страница 'preview_general' создана, idx=1
+2026-02-28 18:49:08,433 [DEBUG] refresh called
+2026-02-28 18:49:08,434 [DEBUG] _render_table called, rendering=False
+2026-02-28 18:49:08,435 [DEBUG] RenderWorker start: 219 routes, mode=full
+2026-02-28 18:49:10,947 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 18:49:10,948 [DEBUG] _on_render_done done
+2026-02-28 18:49:14,002 [DEBUG] route_num_saved: Номер маршрута не определен -> 1
+2026-02-28 18:49:35,267 [DEBUG] navigate -> preview_dept
+2026-02-28 18:49:35,267 [DEBUG] Создаём страницу: preview_dept
+2026-02-28 18:49:35,296 [DEBUG] Страница 'preview_dept' создана, idx=2
+2026-02-28 18:55:19,812 [DEBUG] navigate -> settings
+2026-02-28 18:55:19,812 [DEBUG] Создаём страницу: settings
+2026-02-28 18:55:19,996 [DEBUG] Страница 'settings' создана, idx=3
+2026-02-28 18:55:27,408 [DEBUG] navigate -> home
+2026-02-28 18:55:33,654 [DEBUG] navigate -> settings
+2026-02-28 19:00:58,240 [DEBUG] navigate -> home
+2026-02-28 19:01:02,563 [DEBUG] navigate -> preview_general
+2026-02-28 19:01:02,593 [DEBUG] refresh called
+2026-02-28 19:01:02,594 [DEBUG] _render_table called, rendering=False
+2026-02-28 19:01:02,594 [DEBUG] RenderWorker start: 219 routes, mode=full
+2026-02-28 19:01:05,130 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 19:01:05,209 [DEBUG] _on_render_done done
+2026-02-28 19:16:20,496 [DEBUG] navigate -> products
+2026-02-28 19:16:20,497 [DEBUG] Создаём страницу: products
+2026-02-28 19:16:20,521 [CRITICAL] Ошибка при создании страницы 'products':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 157, in _get_page
+    from ui.pages.products_page import ProductsPage
+ImportError: cannot import name 'ProductsPage' from 'ui.pages.products_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\products_page.py)
+
+2026-02-28 19:16:20,521 [CRITICAL] Ошибка при переходе на страницу 'products':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 183, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 157, in _get_page
+    from ui.pages.products_page import ProductsPage
+ImportError: cannot import name 'ProductsPage' from 'ui.pages.products_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\products_page.py)
+
+2026-02-28 19:16:24,318 [DEBUG] navigate -> products
+2026-02-28 19:16:24,318 [DEBUG] Создаём страницу: products
+2026-02-28 19:16:24,319 [CRITICAL] Ошибка при создании страницы 'products':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 157, in _get_page
+    from ui.pages.products_page import ProductsPage
+ImportError: cannot import name 'ProductsPage' from 'ui.pages.products_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\products_page.py)
+
+2026-02-28 19:16:24,320 [CRITICAL] Ошибка при переходе на страницу 'products':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 183, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 157, in _get_page
+    from ui.pages.products_page import ProductsPage
+ImportError: cannot import name 'ProductsPage' from 'ui.pages.products_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\products_page.py)
+
+2026-02-28 19:16:35,483 [DEBUG] navigate -> products
+2026-02-28 19:16:35,483 [DEBUG] Создаём страницу: products
+2026-02-28 19:16:35,484 [CRITICAL] Ошибка при создании страницы 'products':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 157, in _get_page
+    from ui.pages.products_page import ProductsPage
+ImportError: cannot import name 'ProductsPage' from 'ui.pages.products_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\products_page.py)
+
+2026-02-28 19:16:35,485 [CRITICAL] Ошибка при переходе на страницу 'products':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 183, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 157, in _get_page
+    from ui.pages.products_page import ProductsPage
+ImportError: cannot import name 'ProductsPage' from 'ui.pages.products_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\products_page.py)
+
+2026-02-28 19:16:40,315 [DEBUG] route_num_saved: Номер маршрута не определен -> 1
+2026-02-28 19:16:45,134 [DEBUG] navigate -> products
+2026-02-28 19:16:45,134 [DEBUG] Создаём страницу: products
+2026-02-28 19:16:45,135 [CRITICAL] Ошибка при создании страницы 'products':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 157, in _get_page
+    from ui.pages.products_page import ProductsPage
+ImportError: cannot import name 'ProductsPage' from 'ui.pages.products_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\products_page.py)
+
+2026-02-28 19:16:45,136 [CRITICAL] Ошибка при переходе на страницу 'products':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 183, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 157, in _get_page
+    from ui.pages.products_page import ProductsPage
+ImportError: cannot import name 'ProductsPage' from 'ui.pages.products_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\products_page.py)
+
+2026-02-28 19:20:23,932 [DEBUG] navigate -> settings
+2026-02-28 19:20:26,503 [DEBUG] navigate -> templates
+2026-02-28 19:20:26,503 [DEBUG] Создаём страницу: templates
+2026-02-28 19:20:26,514 [CRITICAL] Ошибка при создании страницы 'templates':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 136, in _get_page
+    from ui.pages.templates_page import TemplatesPage
+ImportError: cannot import name 'TemplatesPage' from 'ui.pages.templates_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\templates_page.py)
+
+2026-02-28 19:20:26,515 [CRITICAL] Ошибка при переходе на страницу 'templates':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 183, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 136, in _get_page
+    from ui.pages.templates_page import TemplatesPage
+ImportError: cannot import name 'TemplatesPage' from 'ui.pages.templates_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\templates_page.py)
+
+2026-02-28 19:20:28,147 [DEBUG] navigate -> departments
+2026-02-28 19:20:28,147 [DEBUG] Создаём страницу: departments
+2026-02-28 19:20:28,148 [CRITICAL] Ошибка при создании страницы 'departments':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 131, in _get_page
+    from ui.pages.departments_page import DepartmentsPage
+ImportError: cannot import name 'DepartmentsPage' from 'ui.pages.departments_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\departments_page.py)
+
+2026-02-28 19:20:28,149 [CRITICAL] Ошибка при переходе на страницу 'departments':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 183, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 131, in _get_page
+    from ui.pages.departments_page import DepartmentsPage
+ImportError: cannot import name 'DepartmentsPage' from 'ui.pages.departments_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\departments_page.py)
+
+2026-02-28 19:20:29,344 [DEBUG] navigate -> products
+2026-02-28 19:20:29,345 [DEBUG] Создаём страницу: products
+2026-02-28 19:20:29,345 [CRITICAL] Ошибка при создании страницы 'products':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 157, in _get_page
+    from ui.pages.products_page import ProductsPage
+ImportError: cannot import name 'ProductsPage' from 'ui.pages.products_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\products_page.py)
+
+2026-02-28 19:20:29,346 [CRITICAL] Ошибка при переходе на страницу 'products':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 183, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 157, in _get_page
+    from ui.pages.products_page import ProductsPage
+ImportError: cannot import name 'ProductsPage' from 'ui.pages.products_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\products_page.py)
+
+2026-02-28 19:20:42,469 [DEBUG] navigate -> settings
+2026-02-28 19:20:49,621 [INFO] Приложение завершено с кодом 0
+2026-02-28 19:22:19,294 [INFO] === Запуск Excel Route Manager ===
+2026-02-28 19:22:19,396 [INFO] Переход на стартовую страницу
+2026-02-28 19:22:19,396 [DEBUG] navigate -> home
+2026-02-28 19:22:19,396 [DEBUG] Создаём страницу: home
+2026-02-28 19:22:20,489 [DEBUG] Страница 'home' создана, idx=0
+2026-02-28 19:22:20,598 [INFO] Окно показано, запускаем event loop
+2026-02-28 19:22:27,716 [INFO] Приложение завершено с кодом 0
+2026-02-28 20:06:11,827 [INFO] === Запуск Excel Route Manager ===
+2026-02-28 20:06:11,976 [INFO] Переход на стартовую страницу
+2026-02-28 20:06:11,976 [DEBUG] navigate -> home
+2026-02-28 20:06:11,976 [DEBUG] Создаём страницу: home
+2026-02-28 20:06:13,101 [DEBUG] Страница 'home' создана, idx=0
+2026-02-28 20:06:13,254 [INFO] Окно показано, запускаем event loop
+2026-02-28 20:06:21,590 [DEBUG] navigate -> preview_general
+2026-02-28 20:06:21,590 [DEBUG] Создаём страницу: preview_general
+2026-02-28 20:06:21,708 [DEBUG] Страница 'preview_general' создана, idx=1
+2026-02-28 20:06:21,723 [DEBUG] refresh called
+2026-02-28 20:06:21,725 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:06:21,725 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 20:06:24,285 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:06:24,314 [DEBUG] _on_render_done done
+2026-02-28 20:06:29,700 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '1', id=2112266408256
+2026-02-28 20:06:29,700 [DEBUG]   route['routeNum'] после изменения: '1'
+2026-02-28 20:06:29,700 [WARNING] route_num_saved: маршрут НЕ найден в filteredRoutes (id=2112266408256) -- изменение потеряется! filteredRoutes ids: [2111726474944, 2112264256768, 2112264011712, 2112260702080, 2112260702016]
+2026-02-28 20:06:29,729 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:06:29,730 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 20:06:29,730 [DEBUG] route_num_saved done, no_num_count=1
+2026-02-28 20:06:32,174 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:06:32,310 [DEBUG] _on_render_done done
+2026-02-28 20:06:39,661 [DEBUG] route_num_saved: '50' -> '0', id=2112660875200
+2026-02-28 20:06:39,661 [DEBUG]   route['routeNum'] после изменения: '0'
+2026-02-28 20:06:39,661 [WARNING] route_num_saved: маршрут НЕ найден в filteredRoutes (id=2112660875200) -- изменение потеряется! filteredRoutes ids: [2111726474944, 2112264256768, 2112264011712, 2112260702080, 2112260702016]
+2026-02-28 20:06:39,690 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:06:39,691 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 20:06:39,691 [DEBUG] route_num_saved done, no_num_count=1
+2026-02-28 20:06:42,098 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:06:42,173 [DEBUG] _on_render_done done
+2026-02-28 20:06:47,335 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:06:47,335 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-02-28 20:06:49,710 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:06:49,783 [DEBUG] _on_render_done done
+2026-02-28 20:06:50,000 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:06:50,000 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 20:06:52,413 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:06:52,491 [DEBUG] _on_render_done done
+2026-02-28 20:06:53,816 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:06:53,816 [DEBUG] RenderWorker start: 219 routes, mode=addr, sort=desc
+2026-02-28 20:06:53,890 [DEBUG] _on_render_done: 219 rows
+2026-02-28 20:06:53,987 [DEBUG] _on_render_done done
+2026-02-28 20:06:55,222 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:06:55,222 [DEBUG] RenderWorker start: 219 routes, mode=addr, sort=asc
+2026-02-28 20:06:55,295 [DEBUG] _on_render_done: 219 rows
+2026-02-28 20:06:55,298 [DEBUG] _on_render_done done
+2026-02-28 20:06:56,793 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:06:56,794 [DEBUG] RenderWorker start: 219 routes, mode=addr, sort=desc
+2026-02-28 20:06:56,868 [DEBUG] _on_render_done: 219 rows
+2026-02-28 20:06:56,870 [DEBUG] _on_render_done done
+2026-02-28 20:07:02,823 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '0', id=2112658057472
+2026-02-28 20:07:02,824 [DEBUG]   route['routeNum'] после изменения: '0'
+2026-02-28 20:07:02,824 [WARNING] route_num_saved: маршрут НЕ найден в filteredRoutes (id=2112658057472) -- изменение потеряется! filteredRoutes ids: [2111726474944, 2112264256768, 2112264011712, 2112260702080, 2112260702016]
+2026-02-28 20:07:02,830 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:07:02,830 [DEBUG] RenderWorker start: 219 routes, mode=addr, sort=desc
+2026-02-28 20:07:02,831 [DEBUG] route_num_saved done, no_num_count=1
+2026-02-28 20:07:02,905 [DEBUG] _on_render_done: 219 rows
+2026-02-28 20:07:02,907 [DEBUG] _on_render_done done
+2026-02-28 20:07:27,005 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '0', id=2112657681792
+2026-02-28 20:07:27,005 [DEBUG]   route['routeNum'] после изменения: '0'
+2026-02-28 20:07:27,005 [WARNING] route_num_saved: маршрут НЕ найден в filteredRoutes (id=2112657681792) -- изменение потеряется! filteredRoutes ids: [2111726474944, 2112264256768, 2112264011712, 2112260702080, 2112260702016]
+2026-02-28 20:07:27,013 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:07:27,013 [DEBUG] RenderWorker start: 219 routes, mode=addr, sort=desc
+2026-02-28 20:07:27,014 [DEBUG] route_num_saved done, no_num_count=1
+2026-02-28 20:07:27,103 [DEBUG] _on_render_done: 219 rows
+2026-02-28 20:07:27,106 [DEBUG] _on_render_done done
+2026-02-28 20:07:34,412 [INFO] Приложение завершено с кодом 0
+2026-02-28 20:18:20,234 [INFO] === Запуск Excel Route Manager ===
+2026-02-28 20:18:20,327 [INFO] Переход на стартовую страницу
+2026-02-28 20:18:20,327 [DEBUG] navigate -> home
+2026-02-28 20:18:20,327 [DEBUG] Создаём страницу: home
+2026-02-28 20:18:21,395 [DEBUG] Страница 'home' создана, idx=0
+2026-02-28 20:18:21,513 [INFO] Окно показано, запускаем event loop
+2026-02-28 20:19:10,876 [INFO] Приложение завершено с кодом 0
+2026-02-28 20:23:03,349 [INFO] === Запуск Excel Route Manager ===
+2026-02-28 20:23:03,439 [INFO] Переход на стартовую страницу
+2026-02-28 20:23:03,439 [DEBUG] navigate -> home
+2026-02-28 20:23:03,439 [DEBUG] Создаём страницу: home
+2026-02-28 20:23:04,676 [DEBUG] Страница 'home' создана, idx=0
+2026-02-28 20:23:04,833 [INFO] Окно показано, запускаем event loop
+2026-02-28 20:23:23,271 [DEBUG] navigate -> preview_general
+2026-02-28 20:23:23,272 [DEBUG] Создаём страницу: preview_general
+2026-02-28 20:23:23,370 [DEBUG] Страница 'preview_general' создана, idx=1
+2026-02-28 20:23:23,384 [DEBUG] refresh called
+2026-02-28 20:23:23,385 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:23:23,386 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 20:23:26,040 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:23:26,071 [DEBUG] _on_render_done done
+2026-02-28 20:23:37,373 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '1', id=2990796226816
+2026-02-28 20:23:37,374 [DEBUG]   route['routeNum'] после изменения: '1'
+2026-02-28 20:23:37,374 [WARNING] route_num_saved: маршрут НЕ найден в filteredRoutes (id=2990796226816) -- изменение потеряется! filteredRoutes ids: [2990290573632, 2990794095680, 2990790604992, 2990790508288, 2990790508224]
+2026-02-28 20:23:37,404 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:23:37,404 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 20:23:37,406 [DEBUG] route_num_saved done, no_num_count=1
+2026-02-28 20:23:39,913 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:23:40,017 [DEBUG] _on_render_done done
+2026-02-28 20:23:44,323 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '1', id=2991189272064
+2026-02-28 20:23:44,323 [DEBUG]   route['routeNum'] после изменения: '1'
+2026-02-28 20:23:44,323 [WARNING] route_num_saved: маршрут НЕ найден в filteredRoutes (id=2991189272064) -- изменение потеряется! filteredRoutes ids: [2990290573632, 2990794095680, 2990790604992, 2990790508288, 2990790508224]
+2026-02-28 20:23:44,355 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:23:44,355 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 20:23:44,356 [DEBUG] route_num_saved done, no_num_count=1
+2026-02-28 20:23:46,848 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:23:46,924 [DEBUG] _on_render_done done
+2026-02-28 20:26:45,312 [INFO] Приложение завершено с кодом 0
+2026-02-28 20:29:31,320 [INFO] === Запуск Excel Route Manager ===
+2026-02-28 20:29:31,394 [INFO] Переход на стартовую страницу
+2026-02-28 20:29:31,395 [DEBUG] navigate -> home
+2026-02-28 20:29:31,395 [DEBUG] Создаём страницу: home
+2026-02-28 20:29:32,268 [DEBUG] Страница 'home' создана, idx=0
+2026-02-28 20:29:32,349 [INFO] Окно показано, запускаем event loop
+2026-02-28 20:29:48,269 [DEBUG] navigate -> preview_general
+2026-02-28 20:29:48,269 [DEBUG] Создаём страницу: preview_general
+2026-02-28 20:29:48,351 [DEBUG] Страница 'preview_general' создана, idx=1
+2026-02-28 20:29:48,362 [DEBUG] refresh called
+2026-02-28 20:29:48,363 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:29:48,363 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 20:29:50,907 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:29:50,919 [DEBUG] _on_render_done done
+2026-02-28 20:29:55,560 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '1', id=2430317742336
+2026-02-28 20:29:55,561 [DEBUG] route_num_saved: fallback по address, обновлён filteredRoutes[137]
+2026-02-28 20:29:55,564 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:29:55,564 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 20:29:55,565 [DEBUG] route_num_saved done, no_num_count=0
+2026-02-28 20:29:58,090 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:29:58,167 [DEBUG] _on_render_done done
+2026-02-28 20:30:04,198 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:30:04,198 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-02-28 20:30:06,743 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:30:06,820 [DEBUG] _on_render_done done
+2026-02-28 20:30:09,684 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:30:09,684 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 20:30:12,182 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:30:12,255 [DEBUG] _on_render_done done
+2026-02-28 20:30:14,007 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:30:14,007 [DEBUG] RenderWorker start: 219 routes, mode=addr, sort=desc
+2026-02-28 20:30:14,088 [DEBUG] _on_render_done: 219 rows
+2026-02-28 20:30:14,172 [DEBUG] _on_render_done done
+2026-02-28 20:30:15,478 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:30:15,478 [DEBUG] RenderWorker start: 219 routes, mode=addr, sort=asc
+2026-02-28 20:30:15,556 [DEBUG] _on_render_done: 219 rows
+2026-02-28 20:30:15,559 [DEBUG] _on_render_done done
+2026-02-28 20:30:22,928 [DEBUG] route_num_saved: '1' -> '0', id=2430317742336
+2026-02-28 20:30:22,929 [DEBUG] route_num_saved: fallback по address, обновлён filteredRoutes[137]
+2026-02-28 20:30:22,929 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:30:22,929 [DEBUG] RenderWorker start: 219 routes, mode=addr, sort=asc
+2026-02-28 20:30:22,930 [DEBUG] route_num_saved done, no_num_count=0
+2026-02-28 20:30:23,007 [DEBUG] _on_render_done: 219 rows
+2026-02-28 20:30:23,010 [DEBUG] _on_render_done done
+2026-02-28 20:30:30,597 [DEBUG] navigate -> preview_dept
+2026-02-28 20:30:30,597 [DEBUG] Создаём страницу: preview_dept
+2026-02-28 20:30:30,631 [DEBUG] Страница 'preview_dept' создана, idx=2
+2026-02-28 20:31:18,394 [DEBUG] navigate -> settings
+2026-02-28 20:31:18,394 [DEBUG] Создаём страницу: settings
+2026-02-28 20:31:18,575 [DEBUG] Страница 'settings' создана, idx=3
+2026-02-28 20:31:33,748 [INFO] Приложение завершено с кодом 0
+2026-02-28 20:45:43,210 [INFO] === Запуск Excel Route Manager ===
+2026-02-28 20:45:43,308 [INFO] Переход на стартовую страницу
+2026-02-28 20:45:43,308 [DEBUG] navigate -> home
+2026-02-28 20:45:43,308 [DEBUG] Создаём страницу: home
+2026-02-28 20:45:44,054 [DEBUG] Страница 'home' создана, idx=0
+2026-02-28 20:45:44,134 [INFO] Окно показано, запускаем event loop
+2026-02-28 20:47:35,745 [DEBUG] navigate -> preview_general
+2026-02-28 20:47:35,745 [DEBUG] Создаём страницу: preview_general
+2026-02-28 20:47:35,797 [DEBUG] Страница 'preview_general' создана, idx=1
+2026-02-28 20:47:35,808 [DEBUG] refresh called
+2026-02-28 20:47:35,810 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:47:35,810 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 20:47:38,418 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:47:38,431 [DEBUG] _on_render_done done
+2026-02-28 20:47:42,701 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:47:42,701 [DEBUG] RenderWorker start: 219 routes, mode=addr, sort=desc
+2026-02-28 20:47:42,780 [DEBUG] _on_render_done: 219 rows
+2026-02-28 20:47:42,852 [DEBUG] _on_render_done done
+2026-02-28 20:47:55,188 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '0', id=2766872965056
+2026-02-28 20:47:55,188 [DEBUG] route_num_saved: fallback по address, обновлён filteredRoutes[137]
+2026-02-28 20:47:55,188 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:47:55,188 [DEBUG] RenderWorker start: 219 routes, mode=addr, sort=desc
+2026-02-28 20:47:55,189 [DEBUG] route_num_saved done, no_num_count=0
+2026-02-28 20:47:55,269 [DEBUG] _on_render_done: 219 rows
+2026-02-28 20:47:55,273 [DEBUG] _on_render_done done
+2026-02-28 20:48:01,420 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:48:01,420 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 20:48:03,917 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:48:03,923 [DEBUG] _on_render_done done
+2026-02-28 20:48:06,029 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:48:06,029 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-02-28 20:48:08,542 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 20:48:08,623 [DEBUG] _on_render_done done
+2026-02-28 20:48:13,066 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:48:13,066 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-02-28 20:48:15,083 [DEBUG] _on_render_done: 5411 rows
+2026-02-28 20:48:15,166 [DEBUG] _on_render_done done
+2026-02-28 20:48:21,132 [DEBUG] _render_table called, rendering=False
+2026-02-28 20:48:21,132 [DEBUG] RenderWorker start: 219 routes, mode=product, sort=asc
+2026-02-28 20:48:21,249 [DEBUG] _on_render_done: 312 rows
+2026-02-28 20:48:21,308 [DEBUG] _on_render_done done
+2026-02-28 20:48:38,926 [DEBUG] navigate -> preview_dept
+2026-02-28 20:48:38,926 [DEBUG] Создаём страницу: preview_dept
+2026-02-28 20:48:38,932 [DEBUG] Страница 'preview_dept' создана, idx=2
+2026-02-28 20:49:29,858 [INFO] Приложение завершено с кодом 0
+2026-02-28 21:02:23,148 [INFO] === Запуск Excel Route Manager ===
+2026-02-28 21:02:23,218 [INFO] Переход на стартовую страницу
+2026-02-28 21:02:23,219 [DEBUG] navigate -> home
+2026-02-28 21:02:23,219 [DEBUG] Создаём страницу: home
+2026-02-28 21:02:23,938 [DEBUG] Страница 'home' создана, idx=0
+2026-02-28 21:02:24,082 [INFO] Окно показано, запускаем event loop
+2026-02-28 21:02:47,100 [DEBUG] navigate -> preview_general
+2026-02-28 21:02:47,101 [DEBUG] Создаём страницу: preview_general
+2026-02-28 21:02:47,192 [DEBUG] Страница 'preview_general' создана, idx=1
+2026-02-28 21:02:47,206 [DEBUG] refresh called
+2026-02-28 21:02:47,208 [DEBUG] _render_table called, rendering=False
+2026-02-28 21:02:47,208 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 21:02:49,746 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 21:02:49,770 [DEBUG] _on_render_done done
+2026-02-28 21:02:54,009 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '0', id=2436434151488
+2026-02-28 21:02:54,009 [DEBUG] route_num_saved: fallback по address, обновлён filteredRoutes[137]
+2026-02-28 21:02:54,011 [DEBUG] _render_table called, rendering=False
+2026-02-28 21:02:54,012 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 21:02:54,012 [DEBUG] route_num_saved done, no_num_count=0
+2026-02-28 21:02:56,480 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 21:02:56,576 [DEBUG] _on_render_done done
+2026-02-28 21:03:00,103 [DEBUG] navigate -> preview_dept
+2026-02-28 21:03:00,104 [DEBUG] Создаём страницу: preview_dept
+2026-02-28 21:03:00,127 [DEBUG] Страница 'preview_dept' создана, idx=2
+2026-02-28 21:07:33,440 [DEBUG] settings_modal: on_saved — обновляем превью-страницы
+2026-02-28 21:07:33,440 [DEBUG] _render_table called, rendering=False
+2026-02-28 21:07:33,440 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 21:07:36,934 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 21:07:37,011 [DEBUG] _on_render_done done
+2026-02-28 21:16:54,707 [DEBUG] navigate -> templates
+2026-02-28 21:16:54,708 [DEBUG] Создаём страницу: templates
+2026-02-28 21:16:54,735 [CRITICAL] Ошибка при создании страницы 'templates':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 137, in _get_page
+    from ui.pages.templates_page import TemplatesPage
+ImportError: cannot import name 'TemplatesPage' from 'ui.pages.templates_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\templates_page.py)
+
+2026-02-28 21:16:54,736 [CRITICAL] Ошибка при переходе на страницу 'templates':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 181, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 137, in _get_page
+    from ui.pages.templates_page import TemplatesPage
+ImportError: cannot import name 'TemplatesPage' from 'ui.pages.templates_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\templates_page.py)
+
+2026-02-28 21:16:59,417 [DEBUG] navigate -> templates
+2026-02-28 21:16:59,417 [DEBUG] Создаём страницу: templates
+2026-02-28 21:16:59,418 [CRITICAL] Ошибка при создании страницы 'templates':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 137, in _get_page
+    from ui.pages.templates_page import TemplatesPage
+ImportError: cannot import name 'TemplatesPage' from 'ui.pages.templates_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\templates_page.py)
+
+2026-02-28 21:16:59,419 [CRITICAL] Ошибка при переходе на страницу 'templates':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 181, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 137, in _get_page
+    from ui.pages.templates_page import TemplatesPage
+ImportError: cannot import name 'TemplatesPage' from 'ui.pages.templates_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\templates_page.py)
+
+2026-02-28 21:17:07,711 [DEBUG] navigate -> templates
+2026-02-28 21:17:07,712 [DEBUG] Создаём страницу: templates
+2026-02-28 21:17:07,712 [CRITICAL] Ошибка при создании страницы 'templates':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 137, in _get_page
+    from ui.pages.templates_page import TemplatesPage
+ImportError: cannot import name 'TemplatesPage' from 'ui.pages.templates_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\templates_page.py)
+
+2026-02-28 21:17:07,713 [CRITICAL] Ошибка при переходе на страницу 'templates':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 181, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 137, in _get_page
+    from ui.pages.templates_page import TemplatesPage
+ImportError: cannot import name 'TemplatesPage' from 'ui.pages.templates_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\templates_page.py)
+
+2026-02-28 21:17:09,351 [DEBUG] navigate -> departments
+2026-02-28 21:17:09,351 [DEBUG] Создаём страницу: departments
+2026-02-28 21:17:09,352 [CRITICAL] Ошибка при создании страницы 'departments':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 132, in _get_page
+    from ui.pages.departments_page import DepartmentsPage
+ImportError: cannot import name 'DepartmentsPage' from 'ui.pages.departments_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\departments_page.py)
+
+2026-02-28 21:17:09,353 [CRITICAL] Ошибка при переходе на страницу 'departments':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 181, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 132, in _get_page
+    from ui.pages.departments_page import DepartmentsPage
+ImportError: cannot import name 'DepartmentsPage' from 'ui.pages.departments_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\departments_page.py)
+
+2026-02-28 21:17:18,310 [DEBUG] navigate -> home
+2026-02-28 21:17:20,361 [DEBUG] navigate -> templates
+2026-02-28 21:17:20,361 [DEBUG] Создаём страницу: templates
+2026-02-28 21:17:20,361 [CRITICAL] Ошибка при создании страницы 'templates':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 137, in _get_page
+    from ui.pages.templates_page import TemplatesPage
+ImportError: cannot import name 'TemplatesPage' from 'ui.pages.templates_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\templates_page.py)
+
+2026-02-28 21:17:20,363 [CRITICAL] Ошибка при переходе на страницу 'templates':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 181, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 137, in _get_page
+    from ui.pages.templates_page import TemplatesPage
+ImportError: cannot import name 'TemplatesPage' from 'ui.pages.templates_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\templates_page.py)
+
+2026-02-28 21:17:21,945 [DEBUG] navigate -> products
+2026-02-28 21:17:21,946 [DEBUG] Создаём страницу: products
+2026-02-28 21:17:21,963 [CRITICAL] Ошибка при создании страницы 'products':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 155, in _get_page
+    from ui.pages.products_page import ProductsPage
+ImportError: cannot import name 'ProductsPage' from 'ui.pages.products_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\products_page.py)
+
+2026-02-28 21:17:21,964 [CRITICAL] Ошибка при переходе на страницу 'products':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 181, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 155, in _get_page
+    from ui.pages.products_page import ProductsPage
+ImportError: cannot import name 'ProductsPage' from 'ui.pages.products_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\products_page.py)
+
+2026-02-28 21:17:28,947 [INFO] Приложение завершено с кодом 0
+2026-02-28 21:18:43,885 [INFO] === Запуск Excel Route Manager ===
+2026-02-28 21:18:43,941 [INFO] Переход на стартовую страницу
+2026-02-28 21:18:43,941 [DEBUG] navigate -> home
+2026-02-28 21:18:43,941 [DEBUG] Создаём страницу: home
+2026-02-28 21:18:44,554 [DEBUG] Страница 'home' создана, idx=0
+2026-02-28 21:18:44,637 [INFO] Окно показано, запускаем event loop
+2026-02-28 21:18:54,555 [DEBUG] navigate -> departments
+2026-02-28 21:18:54,555 [DEBUG] Создаём страницу: departments
+2026-02-28 21:18:54,559 [CRITICAL] Ошибка при создании страницы 'departments':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 132, in _get_page
+    from ui.pages.departments_page import DepartmentsPage
+ImportError: cannot import name 'DepartmentsPage' from 'ui.pages.departments_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\departments_page.py)
+
+2026-02-28 21:18:54,560 [CRITICAL] Ошибка при переходе на страницу 'departments':
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 181, in navigate
+    page = _get_page(page_name)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\app.py", line 132, in _get_page
+    from ui.pages.departments_page import DepartmentsPage
+ImportError: cannot import name 'DepartmentsPage' from 'ui.pages.departments_page' (c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\Test\excel_route_py\ui\pages\departments_page.py)
+
+2026-02-28 21:19:08,656 [DEBUG] navigate -> preview_general
+2026-02-28 21:19:08,657 [DEBUG] Создаём страницу: preview_general
+2026-02-28 21:19:08,721 [DEBUG] Страница 'preview_general' создана, idx=1
+2026-02-28 21:19:08,763 [DEBUG] refresh called
+2026-02-28 21:19:08,764 [DEBUG] _render_table called, rendering=False
+2026-02-28 21:19:08,764 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 21:19:12,432 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 21:19:12,449 [DEBUG] _on_render_done done
+2026-02-28 21:19:16,442 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '1', id=1306045377024
+2026-02-28 21:19:16,442 [DEBUG] route_num_saved: fallback по address, обновлён filteredRoutes[137]
+2026-02-28 21:19:16,444 [DEBUG] _render_table called, rendering=False
+2026-02-28 21:19:16,444 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 21:19:16,446 [DEBUG] route_num_saved done, no_num_count=0
+2026-02-28 21:19:19,958 [DEBUG] _on_render_done: 7057 rows
+2026-02-28 21:19:20,053 [DEBUG] _on_render_done done
+2026-02-28 21:21:27,643 [DEBUG] _render_table called, rendering=False
+2026-02-28 21:21:27,643 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-02-28 21:21:28,172 [DEBUG] _on_render_done: 1211 rows
+2026-02-28 21:21:28,266 [DEBUG] _on_render_done done
+2026-02-28 21:22:32,967 [INFO] Приложение завершено с кодом 0

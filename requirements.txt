@@ -1,0 +1,11 @@
+# Excel Route Manager — зависимости
+# Установка: pip install -r requirements.txt
+
+# Чтение XLS файлов (Excel 97-2003)
+xlrd==1.2.0
+
+# Запись XLS файлов (Excel 97-2003)
+xlwt==1.3.0
+
+# Графический интерфейс (Qt 6)
+PyQt6>=6.4.0
