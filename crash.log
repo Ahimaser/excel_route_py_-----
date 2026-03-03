@@ -521,3 +521,314 @@ ImportError: cannot import name 'DepartmentsPage' from 'ui.pages.departments_pag
 2026-02-28 21:21:28,172 [DEBUG] _on_render_done: 1211 rows
 2026-02-28 21:21:28,266 [DEBUG] _on_render_done done
 2026-02-28 21:22:32,967 [INFO] Приложение завершено с кодом 0
+2026-03-03 19:03:32,993 [INFO] === Запуск Excel Route Manager ===
+2026-03-03 19:03:33,130 [INFO] Переход на стартовую страницу
+2026-03-03 19:03:33,131 [DEBUG] navigate -> dashboard
+2026-03-03 19:03:33,131 [DEBUG] Создаём страницу: dashboard
+2026-03-03 19:03:33,214 [DEBUG] Страница 'dashboard' создана, idx=0
+2026-03-03 19:03:33,308 [INFO] Окно показано, запускаем event loop
+2026-03-03 19:03:36,431 [DEBUG] navigate -> dashboard
+2026-03-03 19:03:42,396 [DEBUG] navigate -> home
+2026-03-03 19:03:42,396 [DEBUG] Создаём страницу: home
+2026-03-03 19:03:44,595 [DEBUG] Страница 'home' создана, idx=1
+2026-03-03 19:04:02,606 [DEBUG] navigate -> preview_general
+2026-03-03 19:04:02,606 [DEBUG] Создаём страницу: preview_general
+2026-03-03 19:04:02,749 [DEBUG] Страница 'preview_general' создана, idx=2
+2026-03-03 19:04:02,761 [DEBUG] refresh called
+2026-03-03 19:04:02,763 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:04:02,764 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-03-03 19:04:05,398 [DEBUG] _on_render_done: 7057 rows
+2026-03-03 19:04:05,439 [DEBUG] _on_render_done done
+2026-03-03 19:04:10,458 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '0', id=2842336153472
+2026-03-03 19:04:10,460 [DEBUG] route_num_saved: fallback по address, обновлён filteredRoutes[137]
+2026-03-03 19:04:10,753 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:04:10,754 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=desc
+2026-03-03 19:04:10,755 [DEBUG] route_num_saved done, no_num_count=0
+2026-03-03 19:04:13,248 [DEBUG] _on_render_done: 7057 rows
+2026-03-03 19:04:13,344 [DEBUG] _on_render_done done
+2026-03-03 19:04:21,185 [DEBUG] navigate -> preview_dept
+2026-03-03 19:04:21,185 [DEBUG] Создаём страницу: preview_dept
+2026-03-03 19:04:21,221 [DEBUG] Страница 'preview_dept' создана, idx=3
+2026-03-03 19:08:27,064 [INFO] Приложение завершено с кодом 0
+2026-03-03 19:09:56,157 [INFO] === Запуск Excel Route Manager ===
+2026-03-03 19:09:56,222 [INFO] Переход на стартовую страницу
+2026-03-03 19:09:56,222 [DEBUG] navigate -> dashboard
+2026-03-03 19:09:56,223 [DEBUG] Создаём страницу: dashboard
+2026-03-03 19:09:56,302 [DEBUG] Страница 'dashboard' создана, idx=0
+2026-03-03 19:09:56,444 [INFO] Окно показано, запускаем event loop
+2026-03-03 19:10:00,536 [DEBUG] navigate -> home
+2026-03-03 19:10:00,537 [DEBUG] Создаём страницу: home
+2026-03-03 19:10:01,503 [DEBUG] Страница 'home' создана, idx=1
+2026-03-03 19:10:05,211 [DEBUG] navigate -> dashboard
+2026-03-03 19:10:06,295 [DEBUG] navigate -> home
+2026-03-03 19:10:07,382 [DEBUG] navigate -> dashboard
+2026-03-03 19:10:08,066 [DEBUG] navigate -> preview_general
+2026-03-03 19:10:08,066 [DEBUG] Создаём страницу: preview_general
+2026-03-03 19:10:08,146 [DEBUG] Страница 'preview_general' создана, idx=2
+2026-03-03 19:10:08,158 [DEBUG] refresh called
+2026-03-03 19:10:08,159 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:10:08,160 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-03-03 19:10:10,699 [DEBUG] _on_render_done: 7057 rows
+2026-03-03 19:10:10,712 [DEBUG] _on_render_done done
+2026-03-03 19:10:24,968 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:10:24,969 [DEBUG] RenderWorker start: 220 routes, mode=full, sort=asc
+2026-03-03 19:10:27,395 [DEBUG] _on_render_done: 7058 rows
+2026-03-03 19:10:27,476 [DEBUG] _on_render_done done
+2026-03-03 19:10:32,454 [DEBUG] navigate -> dashboard
+2026-03-03 19:10:33,985 [DEBUG] navigate -> preview_general
+2026-03-03 19:10:34,011 [DEBUG] refresh called
+2026-03-03 19:10:34,012 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:10:34,013 [DEBUG] RenderWorker start: 220 routes, mode=full, sort=asc
+2026-03-03 19:10:36,408 [DEBUG] _on_render_done: 7058 rows
+2026-03-03 19:10:36,486 [DEBUG] _on_render_done done
+2026-03-03 19:10:44,396 [DEBUG] navigate -> dashboard
+2026-03-03 19:10:47,067 [DEBUG] navigate -> products
+2026-03-03 19:10:47,067 [DEBUG] Открываем диалог: products
+2026-03-03 19:11:35,562 [DEBUG] navigate -> products
+2026-03-03 19:11:35,563 [DEBUG] Открываем диалог: products
+2026-03-03 19:11:40,013 [DEBUG] navigate -> departments
+2026-03-03 19:11:40,013 [DEBUG] Открываем диалог: departments
+2026-03-03 19:12:02,635 [DEBUG] navigate -> departments
+2026-03-03 19:12:02,635 [DEBUG] Открываем диалог: departments
+2026-03-03 19:12:19,439 [DEBUG] navigate -> templates
+2026-03-03 19:12:19,439 [DEBUG] Открываем диалог: templates
+2026-03-03 19:22:14,892 [INFO] Приложение завершено с кодом 0
+2026-03-03 19:27:34,130 [INFO] === Запуск Excel Route Manager ===
+2026-03-03 19:27:34,186 [INFO] Переход на стартовую страницу
+2026-03-03 19:27:34,186 [DEBUG] navigate -> dashboard
+2026-03-03 19:27:34,187 [DEBUG] Создаём страницу: dashboard
+2026-03-03 19:27:34,283 [DEBUG] Страница 'dashboard' создана, idx=0
+2026-03-03 19:27:34,413 [INFO] Окно показано, запускаем event loop
+2026-03-03 19:27:36,528 [DEBUG] navigate -> preview_general
+2026-03-03 19:27:36,529 [DEBUG] Создаём страницу: preview_general
+2026-03-03 19:27:36,644 [DEBUG] Страница 'preview_general' создана, idx=1
+2026-03-03 19:27:37,579 [DEBUG] refresh called
+2026-03-03 19:27:37,580 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:27:37,581 [DEBUG] RenderWorker start: 220 routes, mode=full, sort=asc
+2026-03-03 19:27:40,235 [DEBUG] _on_render_done: 7058 rows
+2026-03-03 19:27:40,248 [DEBUG] _on_render_done done
+2026-03-03 19:27:50,658 [DEBUG] navigate -> dashboard
+2026-03-03 19:27:52,429 [DEBUG] navigate -> home
+2026-03-03 19:27:52,430 [DEBUG] Создаём страницу: home
+2026-03-03 19:27:52,443 [DEBUG] Страница 'home' создана, idx=2
+2026-03-03 19:28:00,102 [DEBUG] navigate -> preview_general
+2026-03-03 19:28:00,129 [DEBUG] refresh called
+2026-03-03 19:28:00,131 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:28:00,131 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-03-03 19:28:02,636 [DEBUG] _on_render_done: 7057 rows
+2026-03-03 19:28:02,719 [DEBUG] _on_render_done done
+2026-03-03 19:28:06,098 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '0', id=2783970755648
+2026-03-03 19:28:06,099 [DEBUG] route_num_saved: fallback по address, обновлён filteredRoutes[137]
+2026-03-03 19:28:06,372 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:28:06,372 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-03-03 19:28:06,373 [DEBUG] route_num_saved done, no_num_count=0
+2026-03-03 19:28:08,892 [DEBUG] _on_render_done: 7057 rows
+2026-03-03 19:28:08,975 [DEBUG] _on_render_done done
+2026-03-03 19:28:20,971 [DEBUG] navigate -> preview_dept
+2026-03-03 19:28:20,973 [DEBUG] Создаём страницу: preview_dept
+2026-03-03 19:28:21,039 [DEBUG] Страница 'preview_dept' создана, idx=3
+2026-03-03 19:28:23,898 [DEBUG] navigate -> preview_general
+2026-03-03 19:28:23,926 [DEBUG] refresh called
+2026-03-03 19:28:23,951 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:28:23,957 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-03-03 19:28:26,578 [DEBUG] _on_render_done: 7057 rows
+2026-03-03 19:28:26,668 [DEBUG] _on_render_done done
+2026-03-03 19:28:32,291 [DEBUG] navigate -> dashboard
+2026-03-03 19:28:41,377 [DEBUG] navigate -> preview_general
+2026-03-03 19:28:41,404 [DEBUG] refresh called
+2026-03-03 19:28:41,405 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:28:41,405 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-03-03 19:28:43,887 [DEBUG] _on_render_done: 7057 rows
+2026-03-03 19:28:43,974 [DEBUG] _on_render_done done
+2026-03-03 19:29:34,536 [DEBUG] navigate -> dashboard
+2026-03-03 19:29:35,827 [DEBUG] navigate -> preview_general
+2026-03-03 19:29:35,855 [DEBUG] refresh called
+2026-03-03 19:29:35,856 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:29:35,856 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-03-03 19:29:38,380 [DEBUG] _on_render_done: 7057 rows
+2026-03-03 19:29:38,459 [DEBUG] _on_render_done done
+2026-03-03 19:29:40,710 [DEBUG] navigate -> dashboard
+2026-03-03 19:29:41,549 [DEBUG] navigate -> home
+2026-03-03 19:29:44,612 [DEBUG] navigate -> preview_general
+2026-03-03 19:29:44,637 [DEBUG] refresh called
+2026-03-03 19:29:44,638 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:29:44,639 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-03-03 19:29:47,113 [DEBUG] _on_render_done: 7057 rows
+2026-03-03 19:29:47,199 [DEBUG] _on_render_done done
+2026-03-03 19:29:53,044 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '0', id=2784976193600
+2026-03-03 19:29:53,044 [DEBUG] route_num_saved: fallback по address, обновлён filteredRoutes[137]
+2026-03-03 19:29:53,235 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:29:53,236 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-03-03 19:29:53,237 [DEBUG] route_num_saved done, no_num_count=0
+2026-03-03 19:29:54,781 [DEBUG] _on_render_done: 7057 rows
+2026-03-03 19:29:54,839 [DEBUG] _on_render_done done
+2026-03-03 19:30:00,636 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:30:00,637 [DEBUG] RenderWorker start: 219 routes, mode=addr, sort=asc
+2026-03-03 19:30:00,691 [DEBUG] _on_render_done: 219 rows
+2026-03-03 19:30:00,771 [DEBUG] _on_render_done done
+2026-03-03 19:30:10,972 [DEBUG] navigate -> preview_dept
+2026-03-03 19:30:25,803 [INFO] Приложение завершено с кодом 0
+2026-03-03 19:50:02,816 [INFO] === Запуск Excel Route Manager ===
+2026-03-03 19:50:02,897 [INFO] Переход на стартовую страницу
+2026-03-03 19:50:02,898 [DEBUG] navigate -> dashboard
+2026-03-03 19:50:02,898 [DEBUG] Создаём страницу: dashboard
+2026-03-03 19:50:03,013 [DEBUG] Страница 'dashboard' создана, idx=0
+2026-03-03 19:50:03,164 [INFO] Окно показано, запускаем event loop
+2026-03-03 19:50:18,741 [DEBUG] navigate -> home
+2026-03-03 19:50:18,742 [DEBUG] Создаём страницу: home
+2026-03-03 19:50:19,677 [DEBUG] Страница 'home' создана, idx=1
+2026-03-03 19:52:22,181 [DEBUG] navigate -> preview_general
+2026-03-03 19:52:22,181 [DEBUG] Создаём страницу: preview_general
+2026-03-03 19:52:22,313 [DEBUG] Страница 'preview_general' создана, idx=2
+2026-03-03 19:52:22,331 [DEBUG] refresh called
+2026-03-03 19:52:22,333 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:52:22,334 [DEBUG] RenderWorker start: 371 routes, mode=full, sort=asc
+2026-03-03 19:52:26,767 [DEBUG] _on_render_done: 12159 rows
+2026-03-03 19:52:26,789 [DEBUG] _on_render_done done
+2026-03-03 19:52:47,451 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '1', id=2394409736000
+2026-03-03 19:52:47,452 [DEBUG] route_num_saved: fallback по address, обновлён filteredRoutes[137]
+2026-03-03 19:52:48,206 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:52:48,206 [DEBUG] RenderWorker start: 371 routes, mode=full, sort=asc
+2026-03-03 19:52:48,208 [DEBUG] route_num_saved done, no_num_count=9
+2026-03-03 19:52:52,649 [DEBUG] _on_render_done: 12159 rows
+2026-03-03 19:52:52,795 [DEBUG] _on_render_done done
+2026-03-03 19:52:54,644 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:52:54,645 [DEBUG] RenderWorker start: 371 routes, mode=addr, sort=asc
+2026-03-03 19:52:54,779 [DEBUG] _on_render_done: 371 rows
+2026-03-03 19:52:54,913 [DEBUG] _on_render_done done
+2026-03-03 19:52:59,708 [DEBUG] route_num_saved: 'Номер маршрута не определен' -> '0', id=2394409740288
+2026-03-03 19:52:59,708 [DEBUG] route_num_saved: fallback по address, обновлён filteredRoutes[219]
+2026-03-03 19:53:00,412 [DEBUG] _render_table called, rendering=False
+2026-03-03 19:53:00,412 [DEBUG] RenderWorker start: 371 routes, mode=addr, sort=asc
+2026-03-03 19:53:00,413 [DEBUG] route_num_saved done, no_num_count=8
+2026-03-03 19:53:00,538 [DEBUG] _on_render_done: 371 rows
+2026-03-03 19:53:00,543 [DEBUG] _on_render_done done
+2026-03-03 19:53:12,689 [INFO] Приложение завершено с кодом 0
+2026-03-03 20:06:47,835 [INFO] === Запуск Excel Route Manager ===
+2026-03-03 20:06:47,904 [INFO] Переход на стартовую страницу
+2026-03-03 20:06:47,904 [DEBUG] navigate -> dashboard
+2026-03-03 20:06:47,904 [DEBUG] Создаём страницу: dashboard
+2026-03-03 20:06:47,984 [DEBUG] Страница 'dashboard' создана, idx=0
+2026-03-03 20:06:48,208 [INFO] Окно показано, запускаем event loop
+2026-03-03 20:06:50,758 [DEBUG] navigate -> preview_general
+2026-03-03 20:06:50,759 [DEBUG] Создаём страницу: preview_general
+2026-03-03 20:06:50,957 [DEBUG] Страница 'preview_general' создана, idx=1
+2026-03-03 20:06:51,844 [DEBUG] refresh called
+2026-03-03 20:06:51,845 [DEBUG] _render_table called, rendering=False
+2026-03-03 20:06:51,846 [DEBUG] RenderWorker start: 371 routes, mode=full, sort=asc
+2026-03-03 20:06:56,249 [DEBUG] _on_render_done: 12159 rows
+2026-03-03 20:06:56,263 [DEBUG] _on_render_done done
+2026-03-03 20:07:00,876 [DEBUG] navigate -> dashboard
+2026-03-03 20:07:02,909 [DEBUG] navigate -> labels
+2026-03-03 20:07:02,910 [DEBUG] Создаём страницу: labels
+2026-03-03 20:07:02,928 [DEBUG] Страница 'labels' создана, idx=2
+2026-03-03 20:07:11,591 [DEBUG] navigate -> settings
+2026-03-03 20:07:11,592 [DEBUG] Открываем диалог: settings
+2026-03-03 20:08:40,992 [DEBUG] navigate -> departments
+2026-03-03 20:08:40,992 [DEBUG] Открываем диалог: departments
+2026-03-03 20:09:01,249 [INFO] Приложение завершено с кодом 0
+2026-03-03 20:11:52,934 [INFO] === Запуск Excel Route Manager ===
+2026-03-03 20:11:52,994 [INFO] Переход на стартовую страницу
+2026-03-03 20:11:52,995 [DEBUG] navigate -> dashboard
+2026-03-03 20:11:52,995 [DEBUG] Создаём страницу: dashboard
+2026-03-03 20:11:53,070 [DEBUG] Страница 'dashboard' создана, idx=0
+2026-03-03 20:11:53,255 [INFO] Окно показано, запускаем event loop
+2026-03-03 20:11:56,972 [DEBUG] navigate -> settings
+2026-03-03 20:11:56,972 [DEBUG] Открываем диалог: settings
+2026-03-03 20:41:20,859 [INFO] Приложение завершено с кодом 0
+2026-03-03 20:54:15,745 [INFO] === Запуск Excel Route Manager ===
+2026-03-03 20:54:15,819 [INFO] Переход на стартовую страницу
+2026-03-03 20:54:15,821 [DEBUG] navigate -> dashboard
+2026-03-03 20:54:15,822 [DEBUG] Создаём страницу: dashboard
+2026-03-03 20:54:15,949 [DEBUG] Страница 'dashboard' создана, idx=0
+2026-03-03 20:54:16,199 [INFO] Окно показано, запускаем event loop
+2026-03-03 20:54:18,290 [DEBUG] navigate -> labels
+2026-03-03 20:54:18,291 [DEBUG] Создаём страницу: labels
+2026-03-03 20:54:18,385 [DEBUG] Страница 'labels' создана, idx=1
+2026-03-03 20:54:23,224 [DEBUG] navigate -> preview_general
+2026-03-03 20:54:23,225 [DEBUG] Создаём страницу: preview_general
+2026-03-03 20:54:23,383 [DEBUG] Страница 'preview_general' создана, idx=2
+2026-03-03 20:54:24,216 [DEBUG] refresh called
+2026-03-03 20:54:24,219 [DEBUG] _render_table called, rendering=False
+2026-03-03 20:54:24,219 [DEBUG] RenderWorker start: 219 routes, mode=full, sort=asc
+2026-03-03 20:54:26,816 [DEBUG] _on_render_done: 7057 rows
+2026-03-03 20:54:26,831 [DEBUG] _on_render_done done
+2026-03-03 20:54:33,076 [DEBUG] navigate -> settings
+2026-03-03 20:54:33,076 [DEBUG] Открываем диалог: settings
+2026-03-03 20:55:30,666 [DEBUG] navigate -> products
+2026-03-03 20:55:30,666 [DEBUG] Открываем диалог: products
+2026-03-03 20:55:30,704 [CRITICAL] Ошибка при открытии products:
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\1\excel_route_py_Копия\app.py", line 136, in _open_products
+    open_modal(window, window.app_state)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\1\excel_route_py_Копия\ui\pages\products_page.py", line 288, in open_modal
+    dlg = ProductsDialog(app_state, parent=parent)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\1\excel_route_py_Копия\ui\pages\products_page.py", line 30, in __init__
+    self._build_ui()
+    ~~~~~~~~~~~~~~^^
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\1\excel_route_py_Копия\ui\pages\products_page.py", line 80, in _build_ui
+    self.combo_variant = QComboBox()
+                         ^^^^^^^^^
+NameError: name 'QComboBox' is not defined
+
+2026-03-03 20:55:35,955 [DEBUG] navigate -> products
+2026-03-03 20:55:35,956 [DEBUG] Открываем диалог: products
+2026-03-03 20:55:35,976 [CRITICAL] Ошибка при открытии products:
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\1\excel_route_py_Копия\app.py", line 136, in _open_products
+    open_modal(window, window.app_state)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\1\excel_route_py_Копия\ui\pages\products_page.py", line 288, in open_modal
+    dlg = ProductsDialog(app_state, parent=parent)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\1\excel_route_py_Копия\ui\pages\products_page.py", line 30, in __init__
+    self._build_ui()
+    ~~~~~~~~~~~~~~^^
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\1\excel_route_py_Копия\ui\pages\products_page.py", line 80, in _build_ui
+    self.combo_variant = QComboBox()
+                         ^^^^^^^^^
+NameError: name 'QComboBox' is not defined
+
+2026-03-03 20:55:37,841 [DEBUG] navigate -> templates
+2026-03-03 20:55:37,842 [DEBUG] Открываем диалог: templates
+2026-03-03 20:56:02,731 [DEBUG] navigate -> settings
+2026-03-03 20:56:02,731 [DEBUG] Открываем диалог: settings
+2026-03-03 20:56:12,404 [DEBUG] navigate -> dashboard
+2026-03-03 20:56:15,364 [DEBUG] navigate -> labels
+2026-03-03 20:56:27,541 [DEBUG] navigate -> settings
+2026-03-03 20:56:27,541 [DEBUG] Открываем диалог: settings
+2026-03-03 21:05:35,060 [DEBUG] navigate -> dashboard
+2026-03-03 21:05:43,369 [DEBUG] navigate -> dashboard
+2026-03-03 21:05:43,459 [DEBUG] navigate -> dashboard
+2026-03-03 21:05:44,042 [DEBUG] navigate -> dashboard
+2026-03-03 21:05:47,451 [DEBUG] navigate -> departments
+2026-03-03 21:05:47,451 [DEBUG] Открываем диалог: departments
+2026-03-03 21:06:39,688 [DEBUG] navigate -> departments
+2026-03-03 21:06:39,688 [DEBUG] Открываем диалог: departments
+2026-03-03 21:07:36,861 [INFO] Приложение завершено с кодом 0
+2026-03-03 21:08:36,608 [INFO] === Запуск Excel Route Manager ===
+2026-03-03 21:08:36,664 [INFO] Переход на стартовую страницу
+2026-03-03 21:08:36,665 [DEBUG] navigate -> dashboard
+2026-03-03 21:08:36,665 [DEBUG] Создаём страницу: dashboard
+2026-03-03 21:08:36,773 [DEBUG] Страница 'dashboard' создана, idx=0
+2026-03-03 21:08:36,998 [INFO] Окно показано, запускаем event loop
+2026-03-03 21:08:38,955 [DEBUG] navigate -> products
+2026-03-03 21:08:38,955 [DEBUG] Открываем диалог: products
+2026-03-03 21:08:38,985 [CRITICAL] Ошибка при открытии products:
+Traceback (most recent call last):
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\1\excel_route_py_Копия\app.py", line 136, in _open_products
+    open_modal(window, window.app_state)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\1\excel_route_py_Копия\ui\pages\products_page.py", line 288, in open_modal
+    dlg = ProductsDialog(app_state, parent=parent)
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\1\excel_route_py_Копия\ui\pages\products_page.py", line 30, in __init__
+    self._build_ui()
+    ~~~~~~~~~~~~~~^^
+  File "c:\Users\geniy\OneDrive\Рабочий стол\Python_Exel_Redactior\1\excel_route_py_Копия\ui\pages\products_page.py", line 80, in _build_ui
+    self.combo_variant = QComboBox()
+                         ^^^^^^^^^
+NameError: name 'QComboBox' is not defined
+
+2026-03-03 21:08:46,305 [DEBUG] navigate -> departments
+2026-03-03 21:08:46,305 [DEBUG] Открываем диалог: departments
+2026-03-03 21:08:52,487 [INFO] Приложение завершено с кодом 0
