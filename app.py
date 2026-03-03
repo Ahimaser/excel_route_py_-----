@@ -1,5 +1,5 @@
 """
-app.py — Точка входа приложения Excel Route Manager.
+app.py — Точка входа приложения «Маршруты, Сборка».
 
 Изменения:
 - Глобальный обработчик исключений (sys.excepthook) — крэш записывается в лог
@@ -75,7 +75,9 @@ from ui.main_window import MainWindow
 
 # Страницы, которые встраиваются в стек (QWidget-страницы)
 PAGE_TITLES = {
+    "dashboard":       "Главная",
     "home":            "Обработка файлов",
+    "labels":          "Этикетки",
     "preview_general": "Предпросмотр — Общие маршруты",
     "preview_dept":    "Предпросмотр — По отделам",
 }
@@ -85,10 +87,10 @@ MODAL_REFS = {"departments", "products", "templates", "settings"}
 
 
 def main():
-    log.info("=== Запуск Excel Route Manager ===")
+    log.info("=== Запуск Маршруты, Сборка ===")
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Excel Route Manager")
+    app.setApplicationName("Маршруты, Сборка")
     app.setOrganizationName("RouteManager")
 
     try:
@@ -132,6 +134,9 @@ def main():
         try:
             from ui.pages.products_page import open_modal
             open_modal(window, window.app_state)
+            if window.app_state.get("open_departments_after_products"):
+                window.app_state["open_departments_after_products"] = False
+                _open_departments()
         except Exception:
             log.critical("Ошибка при открытии products:\n%s", traceback.format_exc())
 
@@ -171,6 +176,28 @@ def main():
         "settings":    _open_settings,
     }
 
+    # ── Загрузка последних маршрутов и переход в превью ───────────────────
+
+    def _load_last_and_go_preview(file_type: str):
+        """Загружает последние маршруты (main/increase) в app_state и переходит в preview_general."""
+        from core import data_store
+        data = data_store.get_last_routes(file_type)
+        if not data:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                window, "Нет данных",
+                "Нет сохранённых маршрутов для выбранного типа. Сначала обработайте файлы."
+            )
+            return
+        window.app_state.update({
+            "fileType":       file_type,
+            "routes":         data.get("routes", []),
+            "uniqueProducts": data.get("uniqueProducts", []),
+            "filteredRoutes": data.get("filteredRoutes", []),
+            "routeCategory":  data.get("routeCategory") or "ШК",
+        })
+        navigate("preview_general")
+
     # ── Страницы в стеке ──────────────────────────────────────────────────
 
     def _get_page(name: str):
@@ -180,10 +207,25 @@ def main():
 
         log.debug("Создаём страницу: %s", name)
         try:
-            if name == "home":
+            if name == "dashboard":
+                from ui.pages.dashboard_page import DashboardPage
+                page = DashboardPage(window.app_state)
+                page.go_process_files.connect(lambda: navigate("home"))
+                page.open_last_main.connect(lambda: _load_last_and_go_preview("main"))
+                page.open_last_increase.connect(lambda: _load_last_and_go_preview("increase"))
+                page.go_labels.connect(lambda: navigate("labels"))
+
+            elif name == "home":
                 from ui.pages.home_page import HomePage
                 page = HomePage(window.app_state)
                 page.go_preview.connect(lambda: navigate("preview_general"))
+
+            elif name == "labels":
+                from ui.pages.labels_page import LabelsPage
+                page = LabelsPage(window.app_state)
+                page.go_back.connect(lambda: navigate("dashboard"))
+                page.go_open_routes.connect(lambda: _load_last_and_go_preview("main"))
+                page.go_process_files.connect(lambda: navigate("home"))
 
             elif name == "preview_general":
                 from ui.pages.preview_general_page import PreviewGeneralPage
@@ -253,17 +295,18 @@ def main():
             "routes":         [],
             "uniqueProducts": [],
             "filteredRoutes": [],
+            "routeCategory":  "ШК",
             "sortAsc":        False,
         })
         home = _page_cache.get("home")
         if home and hasattr(home, "reset"):
             home.reset()
-        navigate("home")
+        navigate("dashboard")
 
     window._on_new_session = new_session
 
     log.info("Переход на стартовую страницу")
-    navigate("home")
+    navigate("dashboard")
     window.show()
     log.info("Окно показано, запускаем event loop")
 

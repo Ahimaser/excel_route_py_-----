@@ -79,9 +79,10 @@ class SettingsDialog(QDialog):
 
         # Таблица
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
+        self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels([
-            "Продукт", "Ед. изм.", "Показывать Шт", "Кол-во в 1 шт", "Округление"
+            "Продукт", "Ед. изм.", "Показывать Шт", "Кол-во в 1 шт",
+            "Округление ШК", "Округление СД"
         ])
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -89,6 +90,7 @@ class SettingsDialog(QDialog):
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.verticalHeader().setVisible(False)
@@ -172,35 +174,50 @@ class SettingsDialog(QDialog):
             spin.setEnabled(show_pcs)
             self.table.setCellWidget(row, 3, spin)
 
-            # Комбобокс «Округление»
-            combo = QComboBox()
-            combo.addItem("В большую сторону", True)
-            combo.addItem("В меньшую сторону", False)
-            combo.setCurrentIndex(0 if prod.get("roundUp", True) else 1)
-            combo.setEnabled(show_pcs)
-            self.table.setCellWidget(row, 4, combo)
+            # Округление ШК
+            round_shk = prod.get("roundUpШК") if "roundUpШК" in prod else prod.get("roundUp", True)
+            combo_shk = QComboBox()
+            combo_shk.addItem("В большую сторону", True)
+            combo_shk.addItem("В меньшую сторону", False)
+            combo_shk.setCurrentIndex(0 if round_shk else 1)
+            combo_shk.setEnabled(show_pcs)
+            combo_shk.setToolTip("Округление штук для маршрутов ШК (школы)")
+            self.table.setCellWidget(row, 4, combo_shk)
 
-            # Сигналы — сохраняем немедленно при изменении
+            # Округление СД
+            round_sd = prod.get("roundUpСД") if "roundUpСД" in prod else prod.get("roundUp", True)
+            combo_sd = QComboBox()
+            combo_sd.addItem("В большую сторону", True)
+            combo_sd.addItem("В меньшую сторону", False)
+            combo_sd.setCurrentIndex(0 if round_sd else 1)
+            combo_sd.setEnabled(show_pcs)
+            combo_sd.setToolTip("Округление штук для маршрутов СД (сады)")
+            self.table.setCellWidget(row, 5, combo_sd)
+
+            # Сигналы
             chk.stateChanged.connect(
-                lambda state, n=name, s=spin, c=combo: self._on_show_pcs(n, state, s, c)
+                lambda state, n=name, s=spin, c1=combo_shk, c2=combo_sd: self._on_show_pcs(n, state, s, c1, c2)
             )
-            spin.valueChanged.connect(
-                lambda val, n=name: self._on_pcs_per_unit(n, val)
+            spin.valueChanged.connect(lambda val, n=name: self._on_pcs_per_unit(n, val))
+            combo_shk.currentIndexChanged.connect(
+                lambda idx, n=name, c=combo_shk: self._on_round_shk(n, c.currentData())
             )
-            combo.currentIndexChanged.connect(
-                lambda idx, n=name, c=combo: self._on_round(n, c.currentData())
+            combo_sd.currentIndexChanged.connect(
+                lambda idx, n=name, c=combo_sd: self._on_round_sd(n, c.currentData())
             )
 
         self._updating = False
 
     # ─────────────────────────── Обработчики изменений ────────────────────
 
-    def _on_show_pcs(self, name: str, state: int, spin: QDoubleSpinBox, combo: QComboBox):
+    def _on_show_pcs(self, name: str, state: int, spin: QDoubleSpinBox,
+                     combo_shk: QComboBox, combo_sd: QComboBox):
         if self._updating:
             return
         show = state == Qt.CheckState.Checked.value
         spin.setEnabled(show)
-        combo.setEnabled(show)
+        combo_shk.setEnabled(show)
+        combo_sd.setEnabled(show)
         data_store.update_product(name, showPcs=show)
 
     def _on_pcs_per_unit(self, name: str, val: float):
@@ -208,10 +225,15 @@ class SettingsDialog(QDialog):
             return
         data_store.update_product(name, pcsPerUnit=val)
 
-    def _on_round(self, name: str, round_up: bool):
+    def _on_round_shk(self, name: str, round_up: bool):
         if self._updating:
             return
-        data_store.update_product(name, roundUp=round_up)
+        data_store.update_product(name, roundUpШК=round_up)
+
+    def _on_round_sd(self, name: str, round_up: bool):
+        if self._updating:
+            return
+        data_store.update_product(name, roundUpСД=round_up)
 
 
 # ─────────────────────────── Публичная функция ────────────────────────────

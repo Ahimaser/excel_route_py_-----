@@ -118,9 +118,11 @@ def _apply_pcs(routes: list[dict], prod_map: dict[str, dict]) -> list[dict]:
     """
     Добавляет поле pcs к продуктам маршрутов.
     prod_map: {name: product_settings_dict} — передаётся снаружи.
+    Округление берётся по категории маршрута (ШК/СД): roundUpШК, roundUpСД; при отсутствии — roundUp.
     Изменяет продукты in-place (не копирует маршруты).
     """
     for route in routes:
+        route_cat = route.get("routeCategory") or "ШК"
         for prod in route.get("products", []):
             sp = prod_map.get(prod["name"])
             pcs = None
@@ -128,10 +130,14 @@ def _apply_pcs(routes: list[dict], prod_map: dict[str, dict]) -> list[dict]:
                 qty = prod.get("quantity")
                 if qty is not None:
                     try:
+                        if route_cat == "СД":
+                            round_up = sp.get("roundUpСД") if "roundUpСД" in sp else sp.get("roundUp", True)
+                        else:
+                            round_up = sp.get("roundUpШК") if "roundUpШК" in sp else sp.get("roundUp", True)
                         pcs = calc_pcs(
                             float(qty),
                             float(sp.get("pcsPerUnit", 1)),
-                            bool(sp.get("roundUp", True)),
+                            bool(round_up),
                         )
                     except (ValueError, TypeError):
                         pass
@@ -174,6 +180,237 @@ def _sort_routes(routes: list[dict], sort_asc: bool = False) -> list[dict]:
 def _safe_filename(name: str) -> str:
     """Убирает запрещённые символы из имени файла."""
     return re.sub(r'[\\/:*?"<>|]', "_", name)
+
+
+def extract_house_number(address: str) -> str:
+    """Извлекает номер дома/строения из адреса для этикетки. Упрощённо — возвращает адрес до 50 символов."""
+    if not address:
+        return ""
+    s = str(address).strip()
+    return s[:50] if len(s) > 50 else s
+
+
+def _label_print_mode_for_dept(dept_key: str | None, departments_ref: list | None) -> str:
+    """Режим печати этикеток: default, chistchenka, sypuchka (по имени или labelPrintMode)."""
+    if not dept_key or not departments_ref:
+        return "default"
+    for dept in departments_ref:
+        if dept.get("key") == dept_key:
+            mode = dept.get("labelPrintMode")
+            if mode in ("chistchenka", "sypuchka"):
+                return mode
+            name = (dept.get("name") or "").lower()
+            if "чищенка" in name:
+                return "chistchenka"
+            if "сыпучка" in name:
+                return "sypuchka"
+            return "default"
+        for sub in dept.get("subdepts", []):
+            if sub.get("key") == dept_key:
+                mode = sub.get("labelPrintMode")
+                if mode in ("chistchenka", "sypuchka"):
+                    return mode
+                name = (sub.get("name") or "").lower()
+                if "чищенка" in name:
+                    return "chistchenka"
+                if "сыпучка" in name:
+                    return "sypuchka"
+                return "default"
+    return "default"
+
+
+def _route_sort_key_labels(route_num: str) -> tuple[int, str]:
+    """Ключ сортировки маршрутов по возрастанию для этикеток."""
+    try:
+        return (1, int(str(route_num).strip()), str(route_num))
+    except (ValueError, TypeError):
+        return (0, 0, str(route_num))
+
+
+def _load_template_matrix(template_path: str) -> tuple[int, int, list]:
+    """Загружает шаблон XLS в матрицу (nrows, ncols, list of rows). Каждая ячейка — значение для записи."""
+    import xlrd
+    wb = xlrd.open_workbook(template_path, formatting_info=False)
+    sheet = wb.sheet_by_index(0)
+    nrows, ncols = sheet.nrows, sheet.ncols
+    matrix = []
+    for r in range(nrows):
+        row = []
+        for c in range(ncols):
+            cell = sheet.cell(r, c)
+            if cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
+                row.append("")
+            elif cell.ctype == xlrd.XL_CELL_NUMBER:
+                v = cell.value
+                row.append(int(v) if v == int(v) else v)
+            else:
+                row.append(str(cell.value).strip() if cell.value else "")
+        matrix.append(row)
+    return nrows, ncols, matrix
+
+
+def _write_label_block(ws: Any, matrix: list, nrows: int, ncols: int, start_row: int,
+                      route_num: str, house: str, qty_val: Any, styles: dict) -> None:
+    """Пишет один блок этикетки: копия шаблона (matrix) с последней строкой = маршрут, дом, количество."""
+    for r in range(nrows):
+        for c in range(ncols):
+            val = matrix[r][c] if r < len(matrix) and c < len(matrix[r]) else ""
+            if r == nrows - 1 and c >= 0:
+                if c == 0:
+                    val = route_num
+                elif c == 1:
+                    val = house
+                elif c == 2:
+                    val = qty_val if qty_val is not None else ""
+            try:
+                if isinstance(val, (int, float)):
+                    ws.write(start_row + r, c, val, styles.get("num", styles["cell"]))
+                else:
+                    ws.write(start_row + r, c, str(val), styles["cell"])
+            except Exception:
+                ws.write(start_row + r, c, str(val), styles["cell"])
+
+
+def generate_labels_from_templates(
+    routes: list[dict],
+    output_dir: str,
+    file_type: str,
+    products_ref: list | None,
+    departments_ref: list | None,
+) -> list[str]:
+    """
+    Создаёт этикетки XLS по шаблонам продуктов.
+    Один файл на продукт (или два для сыпучки: до 4 кг / после 4 кг). Количество сравнивается как float.
+    Учитывается labelsEnabled отдела/подотдела. Режимы: default; chistchenka (≤5 кг на этикетку);
+    сыпучка — два файла до 4 кг / после 4 кг.
+    """
+    active = [r for r in routes if not r.get("excluded")]
+    created: list[str] = []
+    styles = _get_styles()
+
+    def include_product(prod_name: str) -> bool:
+        if not products_ref or not departments_ref:
+            return True
+        prod = next((p for p in products_ref if p.get("name") == prod_name), None)
+        if not prod:
+            return True
+        dept_key = prod.get("deptKey")
+        if not dept_key:
+            return True
+        for dept in departments_ref:
+            if dept.get("key") == dept_key:
+                if not dept.get("labelsEnabled", True):
+                    return False
+                if dept.get("labelsFor", "both") in ("both", file_type):
+                    return True
+                return False
+            for sub in dept.get("subdepts", []):
+                if sub.get("key") == dept_key:
+                    if not sub.get("labelsEnabled", True):
+                        return False
+                    if sub.get("labelsFor", "both") in ("both", file_type):
+                        return True
+                    return False
+        return True
+
+    active_sorted = sorted(active, key=lambda r: _route_sort_key_labels(str(r.get("routeNum", ""))))
+
+    products_with_templates: dict[str, tuple[str, str]] = {}
+    for p in products_ref or []:
+        tpl = p.get("labelTemplatePath") or ""
+        if tpl and os.path.isfile(tpl) and include_product(p.get("name", "")):
+            products_with_templates[p.get("name", "")] = (tpl, p.get("deptKey") or "")
+
+    for prod_name, (template_path, dept_key) in products_with_templates.items():
+        mode = _label_print_mode_for_dept(dept_key, departments_ref)
+        try:
+            nrows, ncols, matrix = _load_template_matrix(template_path)
+        except Exception:
+            continue
+
+        items: list[tuple[str, str, float | None]] = []
+        for route in active_sorted:
+            route_num = str(route.get("routeNum", ""))
+            house = extract_house_number(route.get("address", ""))
+            for prod in route.get("products", []):
+                if prod.get("name") != prod_name:
+                    continue
+                items.append((route_num, house, prod.get("quantity")))
+
+        if not items:
+            continue
+
+        safe_name = _safe_filename(prod_name)
+
+        if mode == "sypuchka":
+            items_before = [(rn, h, q) for rn, h, q in items if q is not None and float(q) < 4]
+            items_after = [(rn, h, q) for rn, h, q in items if q is None or float(q) >= 4]
+            for title_suffix, item_list in [("до 4 кг", items_before), ("после 4 кг", items_after)]:
+                if not item_list:
+                    continue
+                fname = f"Этикетки Сыпучка {title_suffix} {safe_name}.xls"
+                save_path = os.path.join(output_dir, fname)
+                cnt = 0
+                while os.path.exists(save_path):
+                    cnt += 1
+                    save_path = os.path.join(output_dir, f"Этикетки Сыпучка {title_suffix} {safe_name}_{cnt}.xls")
+                wb = xlwt.Workbook(encoding="utf-8")
+                ws = wb.add_sheet("Этикетки")
+                row = 0
+                for route_num, house, qty in item_list:
+                    _write_label_block(ws, matrix, nrows, ncols, row, route_num, house, qty, styles)
+                    row += nrows + 1
+                wb.save(save_path)
+                created.append(save_path)
+
+        elif mode == "chistchenka":
+            MAX_KG = 5.0
+            expanded: list[tuple[str, str, float]] = []
+            for route_num, house, qty in items:
+                try:
+                    val = float(qty) if qty is not None else 0.0
+                except (TypeError, ValueError):
+                    val = 0.0
+                if val <= MAX_KG:
+                    expanded.append((route_num, house, val))
+                else:
+                    rest = val
+                    while rest > 0:
+                        part = min(MAX_KG, rest)
+                        expanded.append((route_num, house, part))
+                        rest -= part
+            fname = f"Этикетки_{safe_name}.xls"
+            save_path = os.path.join(output_dir, fname)
+            cnt = 0
+            while os.path.exists(save_path):
+                cnt += 1
+                save_path = os.path.join(output_dir, f"Этикетки_{safe_name}_{cnt}.xls")
+            wb = xlwt.Workbook(encoding="utf-8")
+            ws = wb.add_sheet("Этикетки")
+            row = 0
+            for route_num, house, qty in expanded:
+                _write_label_block(ws, matrix, nrows, ncols, row, route_num, house, qty, styles)
+                row += nrows + 1
+            wb.save(save_path)
+            created.append(save_path)
+
+        else:
+            fname = f"Этикетки_{safe_name}.xls"
+            save_path = os.path.join(output_dir, fname)
+            cnt = 0
+            while os.path.exists(save_path):
+                cnt += 1
+                save_path = os.path.join(output_dir, f"Этикетки_{safe_name}_{cnt}.xls")
+            wb = xlwt.Workbook(encoding="utf-8")
+            ws = wb.add_sheet("Этикетки")
+            row = 0
+            for route_num, house, qty in items:
+                _write_label_block(ws, matrix, nrows, ncols, row, route_num, house, qty, styles)
+                row += nrows + 1
+            wb.save(save_path)
+            created.append(save_path)
+
+    return created
 
 
 def _fmt_qty_with_pcs(prod: dict) -> str:

@@ -2,13 +2,15 @@
 main_window.py — Главное окно приложения.
 Содержит: меню, стек страниц, навигацию.
 """
+import os
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QMenuBar, QMenu, QLabel, QPushButton,
     QFrame, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QFont, QIcon, QKeySequence, QShortcut
+from PyQt6.QtGui import QAction, QFont, QIcon, QKeySequence, QShortcut, QPixmap, QPainter
 
 
 STYLESHEET = """
@@ -332,10 +334,11 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Excel Route Manager")
+        self.setWindowTitle("Маршруты, Сборка")
         self.setMinimumSize(1100, 700)
         self.resize(1200, 750)
         self.setStyleSheet(STYLESHEET)
+        self._set_window_icon()
 
         # Состояние приложения (передаётся между страницами)
         self.app_state = {
@@ -345,11 +348,41 @@ class MainWindow(QMainWindow):
             "routes": [],             # распарсенные маршруты
             "uniqueProducts": [],     # уникальные продукты из файлов
             "filteredRoutes": [],     # маршруты после фильтрации/исключения
+            "routeCategory": "ШК",    # "ШК" | "СД" для округления
+            "sortAsc": False,         # сортировка маршрутов
         }
 
         self._build_ui()
         self._build_menu()
         self._build_shortcuts()
+
+    def _set_window_icon(self):
+        """Устанавливает иконку окна (сборщик по маршруту): .ico для системы/сборки, иначе SVG."""
+        base = os.path.dirname(os.path.abspath(__file__))
+        res = os.path.join(base, "..", "resources")
+        ico_path = os.path.join(res, "app.ico")
+        svg_path = os.path.join(res, "app.svg")
+        try:
+            if os.path.isfile(ico_path):
+                self.setWindowIcon(QIcon(ico_path))
+                return
+        except Exception:
+            pass
+        try:
+            from PyQt6.QtSvg import QSvgRenderer
+            if os.path.isfile(svg_path):
+                renderer = QSvgRenderer(svg_path)
+                icon = QIcon()
+                for size in (16, 32, 48, 64):
+                    pm = QPixmap(size, size)
+                    pm.fill(Qt.GlobalColor.transparent)
+                    painter = QPainter(pm)
+                    renderer.render(painter)
+                    painter.end()
+                    icon.addPixmap(pm)
+                self.setWindowIcon(icon)
+        except Exception:
+            pass
 
     # ─────────────────────────── UI ───────────────────────────────────
 
@@ -378,7 +411,7 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(0, 0, 16, 0)
         lay.setSpacing(0)
 
-        self.lbl_title = QLabel("Excel Route Manager")
+        self.lbl_title = QLabel("Маршруты, Сборка")
         self.lbl_title.setObjectName("appTitle")
         lay.addWidget(self.lbl_title)
 
@@ -401,6 +434,16 @@ class MainWindow(QMainWindow):
         act_new.triggered.connect(self._on_new_session)
         file_menu.addAction(act_new)
         file_menu.addSeparator()
+        act_process = QAction("Обработать файлы", self)
+        act_process.triggered.connect(lambda: self.navigate_to.emit("home"))
+        act_process.setShortcut(QKeySequence("Ctrl+O"))
+        act_process.setToolTip("Загрузка и обработка XLS-файлов маршрутов")
+        file_menu.addAction(act_process)
+        act_labels = QAction("Этикетки", self)
+        act_labels.triggered.connect(lambda: self.navigate_to.emit("labels"))
+        act_labels.setToolTip("Создание этикеток XLS по шаблонам")
+        file_menu.addAction(act_labels)
+        file_menu.addSeparator()
         act_exit = QAction("Выход", self)
         act_exit.triggered.connect(self.close)
         file_menu.addAction(act_exit)
@@ -417,7 +460,9 @@ class MainWindow(QMainWindow):
         act_templates.triggered.connect(lambda: self.navigate_to.emit("templates"))
         ref_menu.addAction(act_templates)
 
-        act_products = QAction("Продукты", self)
+        act_products = QAction("Продукты\tCtrl+P", self)
+        act_products.setShortcut(QKeySequence("Ctrl+P"))
+        act_products.setToolTip("Справочник продуктов (округление, шаблоны)")
         act_products.triggered.connect(lambda: self.navigate_to.emit("products"))
         ref_menu.addAction(act_products)
 
@@ -442,10 +487,14 @@ class MainWindow(QMainWindow):
         Ctrl+S, F5, Escape убраны — они отправляли несуществующие имена
         ('generate', 'refresh', 'back') и вызывали ошибки.
         """
-        # Ctrl+O — главная страница
+        # Ctrl+O — обработка файлов
         sc_open = QShortcut(QKeySequence("Ctrl+O"), self)
         sc_open.activated.connect(lambda: self.navigate_to.emit("home"))
-        sc_open.setWhatsThis("Открыть главную страницу (загрузка файлов)")
+        sc_open.setWhatsThis("Обработка файлов (загрузка XLS)")
+        # Ctrl+P — Продукты
+        sc_prod = QShortcut(QKeySequence("Ctrl+P"), self)
+        sc_prod.activated.connect(lambda: self.navigate_to.emit("products"))
+        sc_prod.setWhatsThis("Справочник продуктов")
 
         # Ctrl+D — Отделы и продукты
         sc_dept = QShortcut(QKeySequence("Ctrl+D"), self)
@@ -462,9 +511,10 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self, "Горячие клавиши",
             "Горячие клавиши приложения:\n\n"
-            "  Ctrl+O    —  Главная страница (загрузка файлов)\n"
+            "  Ctrl+O    —  Обработка файлов (загрузка XLS)\n"
             "  Ctrl+D    —  Отделы и продукты\n"
             "  Ctrl+T    —  Шаблоны\n"
+            "  Ctrl+P    —  Продукты\n"
         )
 
     # ─────────────────────────── Навигация ────────────────────────────────────
@@ -481,5 +531,7 @@ class MainWindow(QMainWindow):
             "routes": [],
             "uniqueProducts": [],
             "filteredRoutes": [],
+            "routeCategory": "ШК",
+            "sortAsc": False,
         })
-        self.navigate_to.emit("home")
+        self.navigate_to.emit("dashboard")

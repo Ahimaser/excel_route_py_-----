@@ -25,10 +25,63 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QMessageBox,
     QGroupBox
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt, QMimeData
+from PyQt6.QtGui import QFont, QDrag
 
 from core import data_store
+
+MIME_PRODUCT_NAME = "application/x-marshruty-product-name"
+
+
+class LeftProductsList(QListWidget):
+    """Список слева: можно перетащить элемент на правый список для связки."""
+    def startDrag(self, supportedActions):
+        item = self.currentItem()
+        if not item:
+            return
+        name = item.data(Qt.ItemDataRole.UserRole)
+        if not name:
+            return
+        mime = QMimeData()
+        mime.setText(name)
+        mime.setData(MIME_PRODUCT_NAME, name.encode("utf-8"))
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.CopyAction)
+
+
+class RightProductsList(QListWidget):
+    """Список справа: принимает перетаскивание — создаёт связку вариант → канонический."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(MIME_PRODUCT_NAME) or event.mimeData().hasText():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat(MIME_PRODUCT_NAME) and not event.mimeData().hasText():
+            super().dropEvent(event)
+            return
+        variant = None
+        if event.mimeData().hasFormat(MIME_PRODUCT_NAME):
+            variant = event.mimeData().data(MIME_PRODUCT_NAME).data().decode("utf-8")
+        else:
+            variant = event.mimeData().text()
+        item = self.itemAt(event.position().toPoint())
+        if not item:
+            event.ignore()
+            return
+        canonical = item.data(Qt.ItemDataRole.UserRole)
+        if not canonical or variant == canonical:
+            event.ignore()
+            return
+        # Связка создаётся через родительский диалог
+        parent_dlg = self.window()
+        if hasattr(parent_dlg, "_on_drop_link"):
+            parent_dlg._on_drop_link(variant, canonical)
+        event.accept()
 
 
 class ProductsDialog(QDialog):
@@ -57,10 +110,9 @@ class ProductsDialog(QDialog):
         hint = QLabel(
             "Левый список — новые продукты (не привязаны к отделу или не имеют алиаса). "
             "Правый список — продукты, привязанные к отделам (канонические названия). "
-            "Выберите одно или несколько названий слева и одно каноническое справа, "
-            "затем нажмите «Связать →».\n"
-            "Связка позволяет объединить разные написания одного продукта — "
-            "при следующем парсинге файлов вариант автоматически заменится на каноническое название."
+            "Перетащите элемент слева на нужный справа для связки или выберите и нажмите «Связать →».\n"
+            "Связка объединяет разные написания одного продукта — "
+            "при следующем парсинге вариант автоматически заменится на каноническое название."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #64748b; font-size: 12px;")
@@ -78,11 +130,13 @@ class ProductsDialog(QDialog):
             "Выберите один или несколько (Ctrl+клик, Shift+клик)."
         )
         left_lay = QVBoxLayout(left_box)
-        self.list_new = QListWidget()
+        self.list_new = LeftProductsList()
         self.list_new.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.list_new.setAlternatingRowColors(True)
+        self.list_new.setDragEnabled(True)
         self.list_new.setToolTip(
             "Список новых/непривязанных продуктов.\n"
+            "Можно перетащить элемент на правый список для связки.\n"
             "Ctrl+клик — выбрать несколько, Shift+клик — диапазон."
         )
         left_lay.addWidget(self.list_new)
@@ -112,12 +166,12 @@ class ProductsDialog(QDialog):
             "Выберите одно каноническое название для создания связки."
         )
         right_lay = QVBoxLayout(right_box)
-        self.list_canonical = QListWidget()
+        self.list_canonical = RightProductsList()
         self.list_canonical.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self.list_canonical.setAlternatingRowColors(True)
         self.list_canonical.setToolTip(
             "Список канонических названий продуктов.\n"
-            "Выберите одно название — к нему будут привязаны варианты из левого списка."
+            "Перетащите элемент из левого списка сюда для связки или выберите и нажмите «Связать»."
         )
         right_lay.addWidget(self.list_canonical)
         lists_row.addWidget(right_box, 1)
@@ -157,7 +211,7 @@ class ProductsDialog(QDialog):
         btn_close = QPushButton("Закрыть")
         btn_close.setObjectName("btnSecondary")
         btn_close.setToolTip("Закрыть окно и вернуться в основное приложение")
-        btn_close.clicked.connect(self.accept)
+        btn_close.clicked.connect(self._on_close_clicked)
         lay.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignRight)
 
     # ─────────────────────────── Данные ───────────────────────────────────
@@ -211,6 +265,11 @@ class ProductsDialog(QDialog):
 
     # ─────────────────────────── Действия ─────────────────────────────────
 
+    def _on_drop_link(self, variant: str, canonical: str):
+        """Вызывается при перетаскивании слева на правый список."""
+        data_store.set_alias(variant, canonical)
+        self._refresh()
+
     def _on_link(self):
         left_items  = self.list_new.selectedItems()
         right_items = self.list_canonical.selectedItems()
@@ -236,6 +295,26 @@ class ProductsDialog(QDialog):
                 data_store.set_alias(variant, canonical)
 
         self._refresh()
+
+    def _has_unassigned_products(self) -> bool:
+        products = data_store.get_ref("products") or []
+        aliases = data_store.get_aliases()
+        return any(
+            p.get("name") and not p.get("deptKey") and p["name"] not in aliases
+            for p in products
+        )
+
+    def _on_close_clicked(self):
+        if self._has_unassigned_products():
+            reply = QMessageBox.question(
+                self, "Непривязанные продукты",
+                "Есть продукты без отдела. Открыть окно «Отделы и продукты» для привязки?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.app_state["open_departments_after_products"] = True
+        self.accept()
 
     def _on_remove_alias(self, variant: str):
         data_store.remove_alias(variant)

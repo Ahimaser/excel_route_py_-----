@@ -211,7 +211,7 @@ class DepartmentsDialog(QDialog):
         name = name.strip()
         depts = data_store.get("departments") or []
         key = f"dept_{len(depts)}_{name[:10]}"
-        depts.append({"key": key, "name": name, "subdepts": []})
+        depts.append({"key": key, "name": name, "subdepts": [], "labelsEnabled": True})
         data_store.set_key("departments", depts)
         self._refresh_tree()
 
@@ -257,7 +257,12 @@ class DepartmentsDialog(QDialog):
             if dept["key"] == dept_key:
                 subs = dept.get("subdepts", [])
                 sub_key = f"sub_{dept_key}_{len(subs)}_{name[:10]}"
-                subs.append({"key": sub_key, "name": name})
+                sub_obj = {"key": sub_key, "name": name, "labelsEnabled": True}
+                if "чищенка" in name.lower():
+                    sub_obj["labelPrintMode"] = "chistchenka"
+                elif "сыпучка" in name.lower():
+                    sub_obj["labelPrintMode"] = "sypuchka"
+                subs.append(sub_obj)
                 dept["subdepts"] = subs
                 break
 

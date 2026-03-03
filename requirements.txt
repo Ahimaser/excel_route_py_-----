@@ -1,4 +1,4 @@
-# Excel Route Manager — зависимости
+# Маршруты, Сборка — зависимости
 # Установка: pip install -r requirements.txt
 
 # Чтение XLS файлов (Excel 97-2003)

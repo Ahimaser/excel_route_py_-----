@@ -163,12 +163,20 @@ def parse_file(file_path: str) -> dict[str, Any]:
     return {"routes": routes, "uniqueProducts": unique_list}
 
 
-def parse_files(file_paths: list[str]) -> dict[str, Any]:
+def parse_files(
+    file_paths: list[str],
+    file_categories: list[str] | None = None,
+) -> dict[str, Any]:
     """
     Парсит несколько XLS файлов и объединяет результаты.
+    file_categories: если задан, список той же длины — категория «ШК» или «СД» для каждого файла;
+      каждой маршруту из файла i присваивается routeCategory = file_categories[i].
     Уникальные продукты дедуплицируются по имени.
     Автоматически заменяет варианты написания на канонические через алиасы.
     """
+    if not file_paths:
+        return {"routes": [], "uniqueProducts": [], "errors": []}
+
     from core import data_store  # ленивый импорт для избежания циклического импорта
     aliases = data_store.get_aliases()  # {variant: canonical}
 
@@ -176,13 +184,14 @@ def parse_files(file_paths: list[str]) -> dict[str, Any]:
     all_unique: dict[str, str] = {}  # canonical_name -> unit
     errors: list[str] = []
 
-    for fp in file_paths:
+    for i, fp in enumerate(file_paths):
+        cat = (file_categories[i] if file_categories and i < len(file_categories) else None) or "ШК"
         try:
             result = parse_file(fp)
-            # Применяем алиасы к каждому продукту
             for route in result["routes"]:
                 for prod in route["products"]:
                     prod["name"] = aliases.get(prod["name"], prod["name"])
+                route["routeCategory"] = cat
             all_routes.extend(result["routes"])
             for p in result["uniqueProducts"]:
                 canonical = aliases.get(p["name"], p["name"])

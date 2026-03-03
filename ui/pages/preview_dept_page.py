@@ -10,7 +10,7 @@ preview_dept_page.py — Предпросмотр и генерация файл
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -115,6 +115,14 @@ class PreviewDeptPage(QWidget):
         )
         self.btn_generate_all.clicked.connect(self._on_generate_all)
         bottom_row.addWidget(self.btn_generate_all)
+
+        self.btn_labels = QPushButton("Этикетки из шаблонов (XLS)")
+        self.btn_labels.setObjectName("btnSecondary")
+        self.btn_labels.setFixedHeight(40)
+        self.btn_labels.setToolTip("Создать этикетки в папку «Этикетки на ДД.ММ.ГГГГ» (завтра)")
+        self.btn_labels.clicked.connect(self._on_labels_from_templates)
+        bottom_row.addWidget(self.btn_labels)
+
         lay.addLayout(bottom_row)
 
         self.progress = QProgressBar()
@@ -493,3 +501,34 @@ class PreviewDeptPage(QWidget):
         self.progress.setVisible(False)
         self.btn_generate_all.setEnabled(True)
         QMessageBox.critical(self, "Ошибка", f"Ошибка при создании файлов:\n{msg}")
+
+    def _on_labels_from_templates(self):
+        routes = self.app_state.get("filteredRoutes", [])
+        active = [r for r in routes if not r.get("excluded")]
+        if not active:
+            QMessageBox.warning(self, "Нет данных", "Нет маршрутов для этикеток.")
+            return
+        products_ref = data_store.get_ref("products") or []
+        if not any(p.get("labelTemplatePath") for p in products_ref):
+            QMessageBox.information(
+                self, "Нет шаблонов",
+                "Откройте «Настройки этикеток» (страница Этикетки) и выберите шаблон XLS для продуктов."
+            )
+            return
+        base_dir = self.app_state.get("saveDir") or data_store.get_desktop_path()
+        tomorrow = date.today() + timedelta(days=1)
+        folder_name = f"Этикетки на {tomorrow:%d.%m.%Y}"
+        out_dir = os.path.join(base_dir, folder_name)
+        os.makedirs(out_dir, exist_ok=True)
+        file_type = self.app_state.get("fileType", "main")
+        departments_ref = data_store.get_ref("departments") or []
+        try:
+            created = excel_generator.generate_labels_from_templates(
+                routes, out_dir, file_type, products_ref, departments_ref
+            )
+            if created:
+                QMessageBox.information(self, "Готово", f"Создано файлов: {len(created)}\n\n{out_dir}")
+            else:
+                QMessageBox.information(self, "Нет файлов", "Нет этикеток для создания.")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", str(e))

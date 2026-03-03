@@ -10,15 +10,17 @@ data_store.py — JSON хранилище настроек приложения.
 """
 from __future__ import annotations
 
-import json
-import os
 import copy
+import json
+import logging
+import os
 import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
 
 APP_NAME = "ExcelRouteManager"
+log = logging.getLogger(__name__)
 
 # ─────────────────────────── Дефолтные значения ───────────────────────────
 
@@ -64,7 +66,11 @@ DEFAULTS: dict[str, Any] = {
     "settings": {
         "defaultSaveDir": None,
         "showPcsInPreview": True,
+        "xlsSkipHeaderRows": 0,
+        "xlsSkipFooterRows": 0,
     },
+    "last_main_routes": None,
+    "last_increase_routes": None,
 }
 
 # ─────────────────────────── Состояние модуля ─────────────────────────────
@@ -117,6 +123,33 @@ def _ensure_loaded() -> None:
                 ]
     if "product_aliases" not in _data:
         _data["product_aliases"] = {}
+    if "last_main_routes" not in _data:
+        _data["last_main_routes"] = None
+    if "last_increase_routes" not in _data:
+        _data["last_increase_routes"] = None
+    settings = _data.get("settings") or {}
+    if "xlsSkipHeaderRows" not in settings:
+        settings["xlsSkipHeaderRows"] = 0
+    if "xlsSkipFooterRows" not in settings:
+        settings["xlsSkipFooterRows"] = 0
+    _data["settings"] = settings
+    # Миграция: labelsFor, labelPrintMode, labelsEnabled для отделов/подотделов
+    for dept in _data.get("departments", []):
+        if dept.get("labelsFor") is None:
+            dept["labelsFor"] = "both"
+        if dept.get("labelPrintMode") is None:
+            n = (dept.get("name") or "").lower()
+            dept["labelPrintMode"] = "chistchenka" if "чищенка" in n else "sypuchka" if "сыпучка" in n else "default"
+        if dept.get("labelsEnabled") is None:
+            dept["labelsEnabled"] = True
+        for sub in dept.get("subdepts", []):
+            if sub.get("labelsFor") is None:
+                sub["labelsFor"] = "both"
+            if sub.get("labelPrintMode") is None:
+                n = (sub.get("name") or "").lower()
+                sub["labelPrintMode"] = "chistchenka" if "чищенка" in n else "sypuchka" if "сыпучка" in n else "default"
+            if sub.get("labelsEnabled") is None:
+                sub["labelsEnabled"] = True
 
 
 def _flush() -> None:
@@ -135,7 +168,7 @@ def _flush() -> None:
         os.replace(tmp_path, _path)
         _dirty = False
     except Exception as e:
-        print(f"[DataStore] flush error: {e}")
+        log.error("Ошибка записи store: %s", e)
 
 
 # ─────────────────────────── Публичный API ────────────────────────────────
@@ -210,11 +243,11 @@ def get_desktop_path() -> str:
 def get_products_map() -> dict[str, dict]:
     """
     Возвращает словарь {name: product_dict} без копирования.
-    Используется в hot-path генерации и рендера таблиц.
+    Продукты без имени пропускаются.
     """
     _ensure_loaded()
     products = _data.get("products", [])
-    return {p["name"]: p for p in products}
+    return {p["name"]: p for p in products if p.get("name")}
 
 
 def get_aliases() -> dict[str, str]:
@@ -336,3 +369,37 @@ def save_template(template_id: str, name: str, columns: list,
             _flush()
             return True
     return False
+
+
+# ─────────────────────────── Последние маршруты ───────────────────────────
+
+def save_last_routes(
+    file_type: str,
+    routes: list,
+    unique_products: list,
+    filtered_routes: list,
+    route_category: str | None = None,
+) -> None:
+    """Сохраняет данные маршрутов как последние (main или increase). route_category: ШК или СД."""
+    global _dirty
+    _ensure_loaded()
+    from datetime import datetime
+    blob = {
+        "timestamp": datetime.now().isoformat(),
+        "routes": copy.deepcopy(routes),
+        "uniqueProducts": copy.deepcopy(unique_products),
+        "filteredRoutes": copy.deepcopy(filtered_routes),
+    }
+    if route_category:
+        blob["routeCategory"] = route_category
+    key = "last_main_routes" if file_type == "main" else "last_increase_routes"
+    _data[key] = blob
+    _dirty = True
+    _flush()
+
+
+def get_last_routes(file_type: str) -> dict | None:
+    """Возвращает последние сохранённые маршруты (main или increase) или None."""
+    _ensure_loaded()
+    key = "last_main_routes" if file_type == "main" else "last_increase_routes"
+    return _data.get(key)

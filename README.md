@@ -1,4 +1,4 @@
-# Excel Route Manager
+# Маршруты, Сборка
 
 Настольное приложение для обработки маршрутных XLS файлов.
 
@@ -51,11 +51,25 @@ excel_route_py/
 
 ---
 
+## Иконка приложения
+
+Иконка «сборщик по маршруту»: `resources/app.svg` и `resources/app.ico`.  
+Для пересборки .ico из SVG (например, после правки рисунка):
+
+```bash
+pip install Pillow
+python build_icon.py
+```
+
+Файл `resources/app.ico` используется в окне приложения и при сборке в .exe.
+
+---
+
 ## Сборка в .exe (Windows)
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --name "ExcelRouteManager" app.py
+pyinstaller --onefile --windowed --name "Маршруты_Сборка" --icon=resources/app.ico app.py
 ```
 
 Исполняемый файл появится в папке `dist/`.

@@ -16,28 +16,41 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QFileDialog, QListWidget, QListWidgetItem,
     QButtonGroup, QRadioButton, QProgressBar, QSizePolicy,
-    QScrollArea, QMessageBox
+    QScrollArea, QMessageBox, QSpinBox, QComboBox,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
 from core import data_store, xls_parser
+from core.product_match import find_similar_canonicals
 
 
 # ─────────────────────────── Worker ───────────────────────────────────────
 
 class ParseWorker(QObject):
-    """Парсит XLS файлы в отдельном потоке."""
+    """Парсит XLS файлы в отдельном потоке. file_categories: список «ШК»/«СД» по одному на файл."""
     finished = pyqtSignal(dict)
     error    = pyqtSignal(str)
 
-    def __init__(self, file_paths: list[str]):
+    def __init__(
+        self,
+        file_paths: list[str],
+        skip_header_rows: int = 0,
+        skip_footer_rows: int = 0,
+        file_categories: list[str] | None = None,
+    ):
         super().__init__()
         self.file_paths = file_paths
+        self.skip_header_rows = skip_header_rows
+        self.skip_footer_rows = skip_footer_rows
+        self.file_categories = file_categories
 
     def run(self):
         try:
-            result = xls_parser.parse_files(self.file_paths)
+            result = xls_parser.parse_files(
+                self.file_paths,
+                file_categories=self.file_categories,
+            )
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -96,14 +109,16 @@ class DropZone(QFrame):
 # ─────────────────────────── Страница Home ────────────────────────────────
 
 class HomePage(QWidget):
-    """Главная страница: выбор типа → загрузка файлов → папка → обработка."""
+    """Главная страница: выбор типа → загрузка файлов (ШК/СД) → папка → обработка."""
 
     go_preview = pyqtSignal()
+    go_dashboard = pyqtSignal()
 
     def __init__(self, app_state: dict):
         super().__init__()
         self.app_state = app_state
-        self._file_paths: list[str] = []
+        self._file_paths_shk: list[str] = []
+        self._file_paths_sd: list[str] = []
         self._build_ui()
 
     def _build_ui(self):
@@ -127,7 +142,7 @@ class HomePage(QWidget):
         lay.addWidget(lbl_h)
 
         lay.addWidget(self._make_step_card("1", "Выберите тип создаваемого файла",  self._build_step1()))
-        lay.addWidget(self._make_step_card("2", "Выберите XLS файлы для обработки", self._build_step2()))
+        lay.addWidget(self._make_step_card("2", "Выберите XLS файлы для обработки (школы и/или сады)", self._build_step2()))
         lay.addWidget(self._make_step_card("3", "Папка сохранения (опционально)",   self._build_step3()))
 
         btn_row = QHBoxLayout()
@@ -208,36 +223,74 @@ class HomePage(QWidget):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(8)
+        lay.setSpacing(16)
 
-        self.drop_zone = DropZone()
-        self.drop_zone.setToolTip("Перетащите .xls файлы сюда или нажмите для выбора")
-        self.drop_zone.files_dropped.connect(self._on_drop_or_click)
-        lay.addWidget(self.drop_zone)
+        lbl_shk = QLabel("Файлы для ШК (школы)")
+        lbl_shk.setStyleSheet("font-weight: 600; color: #475569; font-size: 13px;")
+        lay.addWidget(lbl_shk)
+        self.drop_zone_shk = DropZone()
+        self.drop_zone_shk.setToolTip("Перетащите .xls файлы для школ или нажмите для выбора.")
+        self.drop_zone_shk.files_dropped.connect(lambda paths: self._on_drop_or_click(paths, "shk"))
+        lay.addWidget(self.drop_zone_shk)
+        self.file_list_shk = QListWidget()
+        self.file_list_shk.setMaximumHeight(100)
+        self.file_list_shk.setVisible(False)
+        lay.addWidget(self.file_list_shk)
+        btn_shk = QHBoxLayout()
+        self.btn_add_shk = QPushButton("+ Добавить файлы ШК")
+        self.btn_add_shk.setObjectName("btnSecondary")
+        self.btn_add_shk.clicked.connect(lambda: self._open_file_dialog("shk"))
+        self.btn_add_shk.setVisible(False)
+        self.btn_clear_shk = QPushButton("Очистить ШК")
+        self.btn_clear_shk.setObjectName("btnDanger")
+        self.btn_clear_shk.clicked.connect(lambda: self._clear_files("shk"))
+        self.btn_clear_shk.setVisible(False)
+        btn_shk.addWidget(self.btn_add_shk)
+        btn_shk.addWidget(self.btn_clear_shk)
+        btn_shk.addStretch()
+        lay.addLayout(btn_shk)
 
-        self.file_list = QListWidget()
-        self.file_list.setMaximumHeight(120)
-        self.file_list.setToolTip("Список загруженных файлов")
-        self.file_list.setVisible(False)
-        lay.addWidget(self.file_list)
+        lbl_sd = QLabel("Файлы для СД (сады)")
+        lbl_sd.setStyleSheet("font-weight: 600; color: #475569; font-size: 13px;")
+        lay.addWidget(lbl_sd)
+        self.drop_zone_sd = DropZone()
+        self.drop_zone_sd.setToolTip("Перетащите .xls файлы для садов или нажмите для выбора.")
+        self.drop_zone_sd.files_dropped.connect(lambda paths: self._on_drop_or_click(paths, "sd"))
+        lay.addWidget(self.drop_zone_sd)
+        self.file_list_sd = QListWidget()
+        self.file_list_sd.setMaximumHeight(100)
+        self.file_list_sd.setVisible(False)
+        lay.addWidget(self.file_list_sd)
+        btn_sd = QHBoxLayout()
+        self.btn_add_sd = QPushButton("+ Добавить файлы СД")
+        self.btn_add_sd.setObjectName("btnSecondary")
+        self.btn_add_sd.clicked.connect(lambda: self._open_file_dialog("sd"))
+        self.btn_add_sd.setVisible(False)
+        self.btn_clear_sd = QPushButton("Очистить СД")
+        self.btn_clear_sd.setObjectName("btnDanger")
+        self.btn_clear_sd.clicked.connect(lambda: self._clear_files("sd"))
+        self.btn_clear_sd.setVisible(False)
+        btn_sd.addWidget(self.btn_add_sd)
+        btn_sd.addWidget(self.btn_clear_sd)
+        btn_sd.addStretch()
+        lay.addLayout(btn_sd)
 
-        btn_row = QHBoxLayout()
-        self.btn_add_files = QPushButton("+ Добавить файлы")
-        self.btn_add_files.setObjectName("btnSecondary")
-        self.btn_add_files.setToolTip("Добавить ещё .xls файлы к списку")
-        self.btn_add_files.clicked.connect(self._open_file_dialog)
-        self.btn_add_files.setVisible(False)
-
-        self.btn_clear_files = QPushButton("Очистить")
-        self.btn_clear_files.setObjectName("btnDanger")
-        self.btn_clear_files.setToolTip("Удалить все загруженные файлы")
-        self.btn_clear_files.clicked.connect(self._clear_files)
-        self.btn_clear_files.setVisible(False)
-
-        btn_row.addWidget(self.btn_add_files)
-        btn_row.addWidget(self.btn_clear_files)
-        btn_row.addStretch()
-        lay.addLayout(btn_row)
+        skip_row = QHBoxLayout()
+        skip_row.addWidget(QLabel("Пропуск строк в начале:"))
+        self.spin_skip_header = QSpinBox()
+        self.spin_skip_header.setMinimum(0)
+        self.spin_skip_header.setMaximum(500)
+        self.spin_skip_header.setValue((data_store.get("settings") or {}).get("xlsSkipHeaderRows", 0))
+        self.spin_skip_header.valueChanged.connect(self._on_skip_header_changed)
+        skip_row.addWidget(self.spin_skip_header)
+        skip_row.addWidget(QLabel("в конце:"))
+        self.spin_skip_footer = QSpinBox()
+        self.spin_skip_footer.setMinimum(0)
+        self.spin_skip_footer.setMaximum(500)
+        self.spin_skip_footer.setValue((data_store.get("settings") or {}).get("xlsSkipFooterRows", 0))
+        self.spin_skip_footer.valueChanged.connect(self._on_skip_footer_changed)
+        skip_row.addStretch()
+        lay.addLayout(skip_row)
         return w
 
     def _build_step3(self) -> QWidget:
@@ -256,12 +309,6 @@ class HomePage(QWidget):
         btn_change.setToolTip("Выбрать другую папку для сохранения файлов")
         btn_change.clicked.connect(self._choose_save_dir)
         lay.addWidget(btn_change)
-
-        btn_reset = QPushButton("Рабочий стол")
-        btn_reset.setObjectName("btnSecondary")
-        btn_reset.setToolTip("Сбросить папку сохранения на Рабочий стол")
-        btn_reset.clicked.connect(self._reset_save_dir)
-        lay.addWidget(btn_reset)
         return w
 
     # ─────────────────────────── Логика ───────────────────────────────────
@@ -270,7 +317,8 @@ class HomePage(QWidget):
         self._update_save_dir_label()
 
     def reset(self):
-        self._clear_files()
+        self._clear_files("shk")
+        self._clear_files("sd")
         self.radio_main.setChecked(True)
         self.app_state["fileType"] = "main"
         self._update_save_dir_label()
@@ -278,44 +326,68 @@ class HomePage(QWidget):
     def _on_type_changed(self):
         self.app_state["fileType"] = "main" if self.radio_main.isChecked() else "increase"
 
-    def _on_drop_or_click(self, paths: list[str]):
+    def _on_drop_or_click(self, paths: list[str], category: str):
         if not paths:
-            self._open_file_dialog()
+            self._open_file_dialog(category)
         else:
-            self._add_files(paths)
+            self._add_files(paths, category)
 
-    def _open_file_dialog(self):
+    def _open_file_dialog(self, category: str):
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Выберите XLS файлы", "", "Excel 97-2003 (*.xls)"
         )
         if paths:
-            self._add_files(paths)
+            self._add_files(paths, category)
 
-    def _add_files(self, paths: list[str]):
-        existing = set(self._file_paths)
+    def _add_files(self, paths: list[str], category: str):
+        lst = self._file_paths_shk if category == "shk" else self._file_paths_sd
+        list_w = self.file_list_shk if category == "shk" else self.file_list_sd
+        drop = self.drop_zone_shk if category == "shk" else self.drop_zone_sd
+        btn_add = self.btn_add_shk if category == "shk" else self.btn_add_sd
+        btn_clear = self.btn_clear_shk if category == "shk" else self.btn_clear_sd
+        existing = set(lst)
         for p in paths:
             if p not in existing:
-                self._file_paths.append(p)
+                lst.append(p)
                 existing.add(p)
-                item = QListWidgetItem(f"📄 {Path(p).name}")
-                item.setToolTip(p)
-                self.file_list.addItem(item)
+                list_w.addItem(QListWidgetItem(f"📄 {Path(p).name}"))
+                list_w.item(list_w.count() - 1).setToolTip(p)
+        list_w.setVisible(True)
+        btn_add.setVisible(True)
+        btn_clear.setVisible(True)
+        drop.lbl_text.setText(f"Выбрано файлов: {len(lst)}")
+        self._update_process_button()
 
-        if self._file_paths:
-            self.file_list.setVisible(True)
-            self.btn_add_files.setVisible(True)
-            self.btn_clear_files.setVisible(True)
-            self.drop_zone.lbl_text.setText(f"Выбрано файлов: {len(self._file_paths)}")
-            self.btn_process.setEnabled(True)
+    def _clear_files(self, category: str):
+        if category == "shk":
+            self._file_paths_shk.clear()
+            self.file_list_shk.clear()
+            self.file_list_shk.setVisible(False)
+            self.btn_add_shk.setVisible(False)
+            self.btn_clear_shk.setVisible(False)
+            self.drop_zone_shk.lbl_text.setText("Перетащите .xls файлы сюда\nили нажмите для выбора")
+        else:
+            self._file_paths_sd.clear()
+            self.file_list_sd.clear()
+            self.file_list_sd.setVisible(False)
+            self.btn_add_sd.setVisible(False)
+            self.btn_clear_sd.setVisible(False)
+            self.drop_zone_sd.lbl_text.setText("Перетащите .xls файлы сюда\nили нажмите для выбора")
+        self._update_process_button()
 
-    def _clear_files(self):
-        self._file_paths.clear()
-        self.file_list.clear()
-        self.file_list.setVisible(False)
-        self.btn_add_files.setVisible(False)
-        self.btn_clear_files.setVisible(False)
-        self.drop_zone.lbl_text.setText("Перетащите .xls файлы сюда\nили нажмите для выбора")
-        self.btn_process.setEnabled(False)
+    def _update_process_button(self):
+        total = len(self._file_paths_shk) + len(self._file_paths_sd)
+        self.btn_process.setEnabled(total > 0)
+
+    def _on_skip_header_changed(self, value: int):
+        s = data_store.get("settings") or {}
+        s["xlsSkipHeaderRows"] = value
+        data_store.set_key("settings", s)
+
+    def _on_skip_footer_changed(self, value: int):
+        s = data_store.get("settings") or {}
+        s["xlsSkipFooterRows"] = value
+        data_store.set_key("settings", s)
 
     def _choose_save_dir(self):
         d = QFileDialog.getExistingDirectory(
@@ -348,15 +420,22 @@ class HomePage(QWidget):
         self.lbl_save_dir.setText(f"📁 {save_dir}")
 
     def _on_process(self):
-        if not self._file_paths:
+        file_paths = self._file_paths_shk + self._file_paths_sd
+        file_categories = ["ШК"] * len(self._file_paths_shk) + ["СД"] * len(self._file_paths_sd)
+        if not file_paths:
             return
 
-        self.app_state["filePaths"] = self._file_paths[:]
+        self.app_state["filePaths"] = file_paths[:]
         self.btn_process.setEnabled(False)
         self.progress_bar.setVisible(True)
 
         self._thread = QThread()
-        self._worker = ParseWorker(self._file_paths)
+        self._worker = ParseWorker(
+            file_paths,
+            skip_header_rows=self.spin_skip_header.value(),
+            skip_footer_rows=self.spin_skip_footer.value(),
+            file_categories=file_categories,
+        )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.finished.connect(self._on_parse_done)
@@ -369,38 +448,64 @@ class HomePage(QWidget):
         self.progress_bar.setVisible(False)
         self.btn_process.setEnabled(True)
 
+        routes = result.get("routes") or []
+        unique_products = result.get("uniqueProducts") or []
         if result.get("errors"):
             QMessageBox.warning(
                 self, "Ошибки при чтении",
                 "Некоторые файлы не удалось прочитать:\n" + "\n".join(result["errors"])
             )
 
-        self.app_state["routes"] = result["routes"]
-        self.app_state["uniqueProducts"] = result["uniqueProducts"]
-        self.app_state["filteredRoutes"] = [
-            {**r, "excluded": False} for r in result["routes"]
-        ]
+        self.app_state["routes"] = routes
+        self.app_state["uniqueProducts"] = unique_products
+        self.app_state["filteredRoutes"] = [{**r, "excluded": False} for r in routes]
+        first_cat = routes[0].get("routeCategory", "ШК") if routes else "ШК"
+        self.app_state["routeCategory"] = first_cat
 
-        # Обновляем продукты в хранилище — только новые (без перезаписи существующих)
-        store_prods: list[dict] = data_store.get_ref("products") or []
-        existing_names: set[str] = {p["name"] for p in store_prods}
-        new_prods = [
-            {
+        data_store.save_last_routes(
+            self.app_state.get("fileType", "main"),
+            routes,
+            unique_products,
+            self.app_state["filteredRoutes"],
+            route_category=first_cat,
+        )
+
+        store_prods = data_store.get_ref("products") or []
+        existing_names = {p.get("name") for p in store_prods if p.get("name")}
+        canonical_names = [p["name"] for p in store_prods if p.get("name") and p.get("deptKey")]
+
+        new_items = []
+        for up in unique_products:
+            if not up.get("name") or up["name"] in existing_names:
+                continue
+            similar = find_similar_canonicals(up["name"], canonical_names)
+            new_items.append({
                 "name": up["name"],
-                "unit": up["unit"],
-                "showPcs": False,
-                "pcsPerUnit": 1.0,
-                "roundUp": True,
-                "deptKey": None,
-            }
-            for up in result["uniqueProducts"]
-            if up["name"] not in existing_names
-        ]
-        if new_prods:
-            # Читаем копию только если есть изменения
+                "unit": up.get("unit", ""),
+                "similar": similar,
+            })
+
+        if new_items:
+            try:
+                from ui.pages.new_products_dialog import run_new_products_dialog
+                decisions = run_new_products_dialog(self.window(), new_items)
+            except Exception:
+                decisions = [{"name": it["name"], "unit": it.get("unit", ""), "action": "new"} for it in new_items]
             updated = data_store.get("products") or []
-            updated.extend(new_prods)
-            data_store.set_key("products", updated)
+            for d in decisions:
+                if d["action"] == "alias":
+                    data_store.set_alias(d["name"], d["canonical"])
+                else:
+                    updated.append({
+                        "name": d["name"],
+                        "unit": d.get("unit", ""),
+                        "showPcs": False,
+                        "pcsPerUnit": 1.0,
+                        "roundUp": True,
+                        "deptKey": None,
+                    })
+            if any(d["action"] in ("new", "copy") for d in decisions):
+                data_store.set_key("products", updated)
 
         self.go_preview.emit()
 
