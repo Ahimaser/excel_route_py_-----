@@ -5,18 +5,20 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QMessageBox,
+    QFrame, QMessageBox, QGridLayout,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
+from core import data_store
+
 
 class DashboardPage(QWidget):
-    """Главная страница с кнопками: Обработка файлов, Открыть последние, Этикетки."""
+    """Главная страница с карточками действий."""
 
-    go_process_files = pyqtSignal()
-    open_last_main = pyqtSignal()
+    go_process_files  = pyqtSignal()
+    open_last_main    = pyqtSignal()
     open_last_increase = pyqtSignal()
-    go_labels = pyqtSignal()
+    go_labels         = pyqtSignal()
     clear_last_routes = pyqtSignal()
 
     def __init__(self, app_state: dict):
@@ -24,11 +26,14 @@ class DashboardPage(QWidget):
         self.app_state = app_state
         self._build_ui()
 
+    # ─────────────────────────── UI ───────────────────────────────────
+
     def _build_ui(self):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(48, 40, 48, 40)
-        lay.setSpacing(28)
+        lay.setSpacing(32)
 
+        # Заголовок
         title = QLabel("Маршруты, Сборка")
         title.setObjectName("sectionTitle")
         lay.addWidget(title)
@@ -41,47 +46,110 @@ class DashboardPage(QWidget):
         hint.setWordWrap(True)
         lay.addWidget(hint)
 
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(16)
+        # Сетка карточек 2×2
+        grid = QGridLayout()
+        grid.setSpacing(16)
 
-        btn_open = QPushButton("Обработать файлы")
-        btn_open.setObjectName("btnPrimary")
-        btn_open.setFixedHeight(44)
-        btn_open.setToolTip("Перейти к загрузке и обработке XLS-файлов (школы/сады)")
-        btn_open.clicked.connect(self.go_process_files.emit)
-        btn_row.addWidget(btn_open)
+        self._card_process = self._make_card(
+            "📂", "Обработать файлы",
+            "Загрузить XLS-файлы маршрутов (ШК и/или СД)",
+            "btnPrimary", self.go_process_files.emit
+        )
+        grid.addWidget(self._card_process, 0, 0)
 
-        btn_last_main = QPushButton("Последние (основной)")
-        btn_last_main.setObjectName("btnSecondary")
-        btn_last_main.setFixedHeight(44)
-        btn_last_main.setToolTip("Открыть последние сохранённые маршруты (основной)")
-        btn_last_main.clicked.connect(self.open_last_main.emit)
-        btn_row.addWidget(btn_last_main)
+        self._card_last_main = self._make_card(
+            "📋", "Последние (основной)",
+            "Открыть последние сохранённые маршруты",
+            "btnSecondary", self.open_last_main.emit
+        )
+        grid.addWidget(self._card_last_main, 0, 1)
 
-        btn_last_inc = QPushButton("Последние (довоз)")
-        btn_last_inc.setObjectName("btnSecondary")
-        btn_last_inc.setFixedHeight(44)
-        btn_last_inc.setToolTip("Открыть последние сохранённые маршруты (довоз)")
-        btn_last_inc.clicked.connect(self.open_last_increase.emit)
-        btn_row.addWidget(btn_last_inc)
+        self._card_last_inc = self._make_card(
+            "🔄", "Последние (довоз)",
+            "Открыть последние сохранённые маршруты (увеличение)",
+            "btnSecondary", self.open_last_increase.emit
+        )
+        grid.addWidget(self._card_last_inc, 1, 0)
 
-        btn_labels = QPushButton("Этикетки")
-        btn_labels.setObjectName("btnSecondary")
-        btn_labels.setFixedHeight(44)
-        btn_labels.setToolTip("Перейти к созданию этикеток XLS по шаблонам")
-        btn_labels.clicked.connect(self.go_labels.emit)
-        btn_row.addWidget(btn_labels)
+        self._card_labels = self._make_card(
+            "🏷", "Этикетки",
+            "Создать этикетки XLS по шаблонам продуктов",
+            "btnSecondary", self.go_labels.emit
+        )
+        grid.addWidget(self._card_labels, 1, 1)
 
-        btn_clear = QPushButton("Очистить последние")
+        lay.addLayout(grid)
+
+        # Кнопка очистки внизу
+        clear_row = QHBoxLayout()
+        btn_clear = QPushButton("Очистить последние данные")
         btn_clear.setObjectName("btnDanger")
-        btn_clear.setFixedHeight(44)
+        btn_clear.setFixedHeight(40)
         btn_clear.setToolTip("Удалить сохранённые маршруты (если загружен неправильный файл)")
         btn_clear.clicked.connect(self._on_clear_last)
-        btn_row.addWidget(btn_clear)
+        clear_row.addStretch()
+        clear_row.addWidget(btn_clear)
+        lay.addLayout(clear_row)
 
-        btn_row.addStretch()
-        lay.addLayout(btn_row)
         lay.addStretch()
+
+    def _make_card(self, icon: str, title: str, desc: str,
+                   btn_style: str, on_click) -> QFrame:
+        card = QFrame()
+        card.setObjectName("card")
+        card.setCursor(Qt.CursorShape.PointingHandCursor)
+        card_lay = QVBoxLayout(card)
+        card_lay.setContentsMargins(24, 20, 24, 20)
+        card_lay.setSpacing(12)
+
+        lbl_icon = QLabel(icon)
+        lbl_icon.setObjectName("dropZoneIcon")
+        lbl_icon.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        lbl_icon.setStyleSheet("font-size: 28px;")
+        card_lay.addWidget(lbl_icon)
+
+        lbl_title = QLabel(title)
+        lbl_title.setObjectName("cardTitle")
+        card_lay.addWidget(lbl_title)
+
+        lbl_desc = QLabel(desc)
+        lbl_desc.setObjectName("stepLabel")
+        lbl_desc.setWordWrap(True)
+        lbl_desc.setStyleSheet("font-size: 12px;")
+        card_lay.addWidget(lbl_desc)
+
+        card_lay.addStretch()
+
+        btn = QPushButton(title)
+        btn.setObjectName(btn_style)
+        btn.setFixedHeight(40)
+        btn.clicked.connect(on_click)
+        card_lay.addWidget(btn)
+
+        return card
+
+    # ─────────────────────────── Обновление ───────────────────────────
+
+    def refresh(self):
+        """Обновляет подсказки карточек «Последние» по состоянию хранилища."""
+        main_data = data_store.get_last_routes("main")
+        inc_data  = data_store.get_last_routes("increase")
+
+        if main_data:
+            n = len(main_data.get("filteredRoutes") or main_data.get("routes") or [])
+            ts = (main_data.get("timestamp") or "")[:10]
+            tip = f"Маршрутов: {n}" + (f" | {ts}" if ts else "")
+            self._card_last_main.setToolTip(tip)
+        else:
+            self._card_last_main.setToolTip("Нет сохранённых данных")
+
+        if inc_data:
+            n = len(inc_data.get("filteredRoutes") or inc_data.get("routes") or [])
+            ts = (inc_data.get("timestamp") or "")[:10]
+            tip = f"Маршрутов: {n}" + (f" | {ts}" if ts else "")
+            self._card_last_inc.setToolTip(tip)
+        else:
+            self._card_last_inc.setToolTip("Нет сохранённых данных")
 
     def _on_clear_last(self):
         reply = QMessageBox.question(

@@ -440,8 +440,9 @@ class EditPanel(QFrame):
         self.le_new_num.setStyleSheet(self._style_normal)
         route = self._route_ref
         self.saved.emit(route, new_val)
-        # Обновляем отображение текущего номера сразу после сохранения
+        # Обновляем отображение текущего номера и закрываем панель
         self.lbl_current.setText(new_val)
+        self._on_close()
 
     def _on_close(self) -> None:
         self.clear()

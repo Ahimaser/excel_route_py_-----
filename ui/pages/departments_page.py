@@ -10,9 +10,9 @@ from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTreeWidget, QTreeWidgetItem,
     QLineEdit, QComboBox, QFormLayout, QDialogButtonBox,
-    QMessageBox, QInputDialog, QListWidget, QListWidgetItem
+    QMessageBox, QInputDialog, QListWidget, QListWidgetItem, QHeaderView
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 
 from core import data_store
@@ -76,11 +76,26 @@ class DepartmentsDialog(QDialog):
         btn_bar.addStretch()
         lay.addLayout(btn_bar)
 
+        # Поиск по дереву
+        search_row = QHBoxLayout()
+        self.le_search = QLineEdit()
+        self.le_search.setPlaceholderText("Поиск отдела или продукта...")
+        self.le_search.setClearButtonEnabled(True)
+        self.le_search.setToolTip("Фильтрация дерева по названию")
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.timeout.connect(self._apply_search)
+        self.le_search.textChanged.connect(lambda: self._search_timer.start(200))
+        search_row.addWidget(self.le_search)
+        lay.addLayout(search_row)
+
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Название", "Тип", "Продуктов", "Действия"])
-        self.tree.setColumnWidth(0, 320)
-        self.tree.setColumnWidth(1, 100)
-        self.tree.setColumnWidth(2, 90)
+        hdr = self.tree.header()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         self.tree.setColumnWidth(3, 120)
         self.tree.setAlternatingRowColors(True)
         self.tree.setToolTip(
@@ -457,6 +472,34 @@ class DepartmentsDialog(QDialog):
         if data_store.remove_product(product_name):
             QMessageBox.information(self, "Готово", "Продукт удалён из справочника.")
         self._refresh_tree()
+
+    def _apply_search(self):
+        """Показывает/скрывает элементы дерева по поисковому запросу."""
+        text = self.le_search.text().strip().lower()
+        root = self.tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            dept_item = root.child(i)
+            dept_match = text in (dept_item.text(0) or "").lower()
+            any_child_match = False
+            for j in range(dept_item.childCount()):
+                child = dept_item.child(j)
+                child_match = text in (child.text(0) or "").lower()
+                any_gc_match = False
+                for k in range(child.childCount()):
+                    gc = child.child(k)
+                    gc_match = text in (gc.text(0) or "").lower()
+                    gc.setHidden(bool(text) and not gc_match and not child_match and not dept_match)
+                    if gc_match:
+                        any_gc_match = True
+                child_visible = dept_match or child_match or any_gc_match
+                child.setHidden(bool(text) and not child_visible)
+                if child_visible:
+                    any_child_match = True
+                    if text:
+                        child.setExpanded(True)
+            dept_item.setHidden(bool(text) and not dept_match and not any_child_match)
+            if text and any_child_match:
+                dept_item.setExpanded(True)
 
     def refresh(self):
         self._refresh_tree()
