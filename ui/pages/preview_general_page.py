@@ -529,9 +529,13 @@ class PreviewGeneralPage(QWidget):
 
         self.le_search = QLineEdit()
         self.le_search.setPlaceholderText("Поиск по адресу или номеру маршрута...")
+        self.le_search.setClearButtonEnabled(True)
         self.le_search.setMinimumWidth(240)
         self.le_search.textChanged.connect(self._on_search_changed)
+        self.le_search.setToolTip("Быстрый поиск по адресу или номеру маршрута (Ctrl+F)")
         filter_lay.addWidget(self.le_search)
+        sc_search = QShortcut(QKeySequence("Ctrl+F"), self)
+        sc_search.activated.connect(self.le_search.setFocus)
 
         filter_lay.addWidget(QLabel("Продукт:"))
         self.combo_product = QComboBox()

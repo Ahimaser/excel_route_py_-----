@@ -75,6 +75,7 @@ class SettingsDialog(QDialog):
         search_row.addWidget(QLabel("🔍 Поиск:"))
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Начните вводить название продукта...")
+        self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setToolTip("Фильтр по названию продукта. Таблица обновляется при вводе.")
         self.search_edit.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self.search_edit)
