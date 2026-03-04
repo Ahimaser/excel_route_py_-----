@@ -58,7 +58,7 @@ class SettingsPage(QWidget):
             "Настройки применяются ко всем продуктам с одинаковым названием. "
             "Отображение Шт доступно только для продуктов с единицей измерения, отличной от «шт»."
         )
-        lbl_hint.setStyleSheet("color: #64748b; font-size: 13px;")
+        lbl_hint.setObjectName("stepLabel")
         lbl_hint.setWordWrap(True)
         lay.addWidget(lbl_hint)
 
@@ -140,7 +140,7 @@ class SettingsPage(QWidget):
             # Показывать Шт — чекбокс в центре ячейки
             chk = QCheckBox()
             chk.setChecked(show_pcs)
-            chk.setStyleSheet("margin-left: 12px;")
+            chk.setObjectName("tableCheckBox")
             chk_widget = QWidget()
             chk_lay = QHBoxLayout(chk_widget)
             chk_lay.addWidget(chk)

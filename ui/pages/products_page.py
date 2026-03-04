@@ -29,6 +29,7 @@ from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import QFont, QDrag
 
 from core import data_store
+from ui.styles import STYLESHEET
 
 MIME_PRODUCT_NAME = "application/x-marshruty-product-name"
 
@@ -93,6 +94,7 @@ class ProductsDialog(QDialog):
         self.setWindowTitle("Справочник продуктов")
         self.setMinimumSize(820, 620)
         self.setModal(True)
+        self.setStyleSheet(STYLESHEET)
         self._build_ui()
         self._refresh()
 
@@ -115,7 +117,7 @@ class ProductsDialog(QDialog):
             "при следующем парсинге вариант автоматически заменится на каноническое название."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #64748b; font-size: 12px;")
+        hint.setObjectName("hintLabel")
         lay.addWidget(hint)
 
         # Два списка + кнопка связать
@@ -156,6 +158,12 @@ class ProductsDialog(QDialog):
         )
         self.btn_link.clicked.connect(self._on_link)
         mid_lay.addWidget(self.btn_link)
+        self.btn_delete = QPushButton("Удалить из\nсправочника")
+        self.btn_delete.setObjectName("btnDanger")
+        self.btn_delete.setFixedWidth(100)
+        self.btn_delete.setToolTip("Удалить выбранные продукты из справочника полностью (и связанные алиасы)")
+        self.btn_delete.clicked.connect(self._on_delete_from_ref)
+        mid_lay.addWidget(self.btn_delete)
         mid_lay.addStretch()
         lists_row.addLayout(mid_lay)
 
@@ -254,8 +262,7 @@ class ProductsDialog(QDialog):
             self.alias_table.setItem(row, 1, QTableWidgetItem(canonical))
 
             btn_del = QPushButton("✕")
-            btn_del.setObjectName("btnIcon")
-            btn_del.setStyleSheet("color: #dc2626;")
+            btn_del.setObjectName("btnIconDanger")
             btn_del.setFixedSize(36, 28)
             btn_del.setToolTip(f"Удалить связку «{variant}»")
             btn_del.clicked.connect(lambda _, v=variant: self._on_remove_alias(v))
@@ -315,6 +322,34 @@ class ProductsDialog(QDialog):
             if reply == QMessageBox.StandardButton.Yes:
                 self.app_state["open_departments_after_products"] = True
         self.accept()
+
+    def _on_delete_from_ref(self):
+        """Удаляет выбранные продукты из справочника (и связанные алиасы)."""
+        left = [i.data(Qt.ItemDataRole.UserRole) for i in self.list_new.selectedItems()]
+        right = [i.data(Qt.ItemDataRole.UserRole) for i in self.list_canonical.selectedItems()]
+        names = list(dict.fromkeys(left + right))
+        if not names:
+            QMessageBox.information(
+                self, "Выбор",
+                "Выберите один или несколько продуктов в левом или правом списке."
+            )
+            return
+        reply = QMessageBox.question(
+            self, "Удалить из справочника",
+            f"Удалить из справочника полностью: {len(names)} шт.?\n\n"
+            "Будут удалены все связанные алиасы (связки вариантов с этим продуктом).",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        removed = 0
+        for name in names:
+            if data_store.remove_product(name):
+                removed += 1
+        self._refresh()
+        if removed:
+            QMessageBox.information(self, "Готово", f"Удалено из справочника: {removed}.")
 
     def _on_remove_alias(self, variant: str):
         data_store.remove_alias(variant)

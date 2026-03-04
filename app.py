@@ -18,7 +18,9 @@ import logging
 
 # ─────────────────────────── Логирование ──────────────────────────────────
 
-_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crash.log")
+from core.data_store import get_app_data_dir
+
+_LOG_PATH = str(get_app_data_dir() / "crash.log")
 
 _stream_handler = logging.StreamHandler(sys.stdout)
 try:
@@ -176,6 +178,31 @@ def main():
         "settings":    _open_settings,
     }
 
+    # ── Очистка маршрутов ───────────────────────────────────────────────────
+
+    def _clear_last_routes_only():
+        """Очищает только сохранённые «последние» маршруты (остаётся на дашборде)."""
+        from core import data_store
+        data_store.clear_last_routes()
+        try:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(window, "Готово", "Сохранённые маршруты удалены.")
+        except Exception:
+            pass
+
+    def _clear_routes_and_go_dashboard():
+        """Очищает app_state и последние маршруты, переходит на дашборд."""
+        from core import data_store
+        data_store.clear_last_routes()
+        window.app_state.update({
+            "filePaths": [], "routes": [], "uniqueProducts": [],
+            "filteredRoutes": [], "routeCategory": "ШК",
+        })
+        home = _page_cache.get("home")
+        if home and hasattr(home, "reset"):
+            home.reset()
+        navigate("dashboard")
+
     # ── Загрузка последних маршрутов и переход в превью ───────────────────
 
     def _load_last_and_go_preview(file_type: str):
@@ -184,7 +211,7 @@ def main():
         data = data_store.get_last_routes(file_type)
         if not data:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.information(
+            QMessageBox.warning(
                 window, "Нет данных",
                 "Нет сохранённых маршрутов для выбранного типа. Сначала обработайте файлы."
             )
@@ -214,6 +241,7 @@ def main():
                 page.open_last_main.connect(lambda: _load_last_and_go_preview("main"))
                 page.open_last_increase.connect(lambda: _load_last_and_go_preview("increase"))
                 page.go_labels.connect(lambda: navigate("labels"))
+                page.clear_last_routes.connect(_clear_last_routes_only)
 
             elif name == "home":
                 from ui.pages.home_page import HomePage
@@ -233,11 +261,13 @@ def main():
                 page.go_back.connect(lambda: navigate("home"))
                 page.go_dept_preview.connect(lambda: navigate("preview_dept"))
                 page.go_settings.connect(_open_settings)
+                page.go_clear_routes.connect(_clear_routes_and_go_dashboard)
 
             elif name == "preview_dept":
                 from ui.pages.preview_dept_page import PreviewDeptPage
                 page = PreviewDeptPage(window.app_state)
                 page.go_back.connect(lambda: navigate("preview_general"))
+                page.go_clear_routes.connect(_clear_routes_and_go_dashboard)
 
             else:
                 log.warning("Неизвестная страница: %s", name)
@@ -282,6 +312,15 @@ def main():
         except Exception:
             log.critical("Ошибка при переходе на страницу '%s':\n%s",
                          page_name, traceback.format_exc())
+            try:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    window, "Ошибка",
+                    f"Не удалось открыть страницу «{PAGE_TITLES.get(page_name, page_name)}».\n\n"
+                    f"Подробности в файле:\n{_LOG_PATH}"
+                )
+            except Exception:
+                pass
 
     window.navigate_to.connect(navigate)
 

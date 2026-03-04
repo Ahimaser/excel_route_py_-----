@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 from core import data_store
+from ui.styles import STYLESHEET
 from ui.widgets import CommitLineEdit
 
 
@@ -28,6 +29,7 @@ class DepartmentsDialog(QDialog):
         self.setWindowTitle("Отделы и продукты")
         self.setMinimumSize(780, 560)
         self.setModal(True)
+        self.setStyleSheet(STYLESHEET)
         self._build_ui()
         self._refresh_tree()
 
@@ -43,9 +45,9 @@ class DepartmentsDialog(QDialog):
         hint = QLabel(
             "Здесь настраивается иерархия: Отдел → Подотдел → Продукт. "
             "Продукты привязываются к отделу или подотделу. "
-            "Кнопка ✕ удаляет элемент, ✏ — переименовывает."
+            "✏ — переименовать; у продукта: ✕ — открепить от отдела, 🗑 — удалить из справочника; у отдела/подотдела: ✕ — удалить."
         )
-        hint.setStyleSheet("color: #64748b; font-size: 12px;")
+        hint.setObjectName("hintLabel")
         hint.setWordWrap(True)
         lay.addWidget(hint)
 
@@ -83,14 +85,8 @@ class DepartmentsDialog(QDialog):
         self.tree.setAlternatingRowColors(True)
         self.tree.setToolTip(
             "Дерево отделов, подотделов и продуктов.\n"
-            "Кнопка ✏ — переименовать, ✕ — удалить элемент."
+            "✏ — переименовать; ✕ — открепить/удалить; 🗑 — у продукта удалить из справочника."
         )
-        self.tree.setStyleSheet("""
-            QTreeWidget { border: 1px solid #e2e8f0; border-radius: 6px;
-                          background: white; font-size: 13px; }
-            QTreeWidget::item { padding: 6px 4px; }
-            QTreeWidget::item:selected { background: #eff6ff; color: #1e293b; }
-        """)
         lay.addWidget(self.tree)
 
         btn_close = QPushButton("Закрыть")
@@ -184,17 +180,26 @@ class DepartmentsDialog(QDialog):
             btn_rename.clicked.connect(lambda _, k=key, t=item_type: self._rename(k, t))
             btn_lay.addWidget(btn_rename)
 
-        btn_del = QPushButton("✕")
-        btn_del.setObjectName("btnIcon")
-        btn_del.setToolTip(
-            "Удалить продукт из отдела (продукт останется в справочнике)"
-            if item_type == "product" else
-            "Удалить этот элемент (продукты будут откреплены)"
-        )
-        btn_del.setFixedSize(28, 28)
-        btn_del.setStyleSheet("color: #dc2626;")
-        btn_del.clicked.connect(lambda _, k=key, t=item_type: self._delete(k, t))
-        btn_lay.addWidget(btn_del)
+        if item_type == "product":
+            btn_unlink = QPushButton("✕")
+            btn_unlink.setObjectName("btnIconDanger")
+            btn_unlink.setToolTip("Открепить от отдела (продукт остаётся в справочнике)")
+            btn_unlink.setFixedSize(28, 28)
+            btn_unlink.clicked.connect(lambda _, k=key, t=item_type: self._delete(k, t))
+            btn_lay.addWidget(btn_unlink)
+            btn_remove = QPushButton("🗑")
+            btn_remove.setObjectName("btnIconDanger")
+            btn_remove.setToolTip("Удалить продукт из справочника полностью")
+            btn_remove.setFixedSize(28, 28)
+            btn_remove.clicked.connect(lambda _, k=key: self._delete_product_from_ref(k))
+            btn_lay.addWidget(btn_remove)
+        else:
+            btn_del = QPushButton("✕")
+            btn_del.setObjectName("btnIconDanger")
+            btn_del.setToolTip("Удалить отдел/подотдел (продукты будут откреплены)")
+            btn_del.setFixedSize(28, 28)
+            btn_del.clicked.connect(lambda _, k=key, t=item_type: self._delete(k, t))
+            btn_lay.addWidget(btn_del)
 
         btn_lay.addStretch()
         self.tree.setItemWidget(item, 3, btn_widget)
@@ -436,6 +441,21 @@ class DepartmentsDialog(QDialog):
             data_store.set_key("departments", depts)
             data_store.set_key("products", products)
 
+        self._refresh_tree()
+
+    def _delete_product_from_ref(self, product_name: str):
+        """Удаляет продукт из справочника полностью (и связанные алиасы)."""
+        reply = QMessageBox.question(
+            self, "Удалить из справочника",
+            f"Удалить продукт «{product_name}» из справочника полностью?\n\n"
+            "Будут удалены все связанные алиасы.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        if data_store.remove_product(product_name):
+            QMessageBox.information(self, "Готово", "Продукт удалён из справочника.")
         self._refresh_tree()
 
     def refresh(self):

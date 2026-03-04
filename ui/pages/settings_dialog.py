@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 
 from core import data_store
+from ui.styles import STYLESHEET
 
 
 class SettingsDialog(QDialog):
@@ -44,6 +45,7 @@ class SettingsDialog(QDialog):
         self._search_timer.setInterval(200)
         self._search_timer.timeout.connect(self._apply_filter)
 
+        self.setStyleSheet(STYLESHEET)
         self._build_ui()
         QTimer.singleShot(0, self._load_table)
 
@@ -56,7 +58,7 @@ class SettingsDialog(QDialog):
 
         # Заголовок
         lbl = QLabel("Настройки отображения в штуках")
-        lbl.setStyleSheet("font-size: 16px; font-weight: 600; color: #1e293b;")
+        lbl.setObjectName("sectionTitle")
         lay.addWidget(lbl)
 
         lbl_hint = QLabel(
@@ -64,7 +66,7 @@ class SettingsDialog(QDialog):
             "Отображение Шт доступно только для продуктов с единицей измерения, "
             "отличной от «шт»."
         )
-        lbl_hint.setStyleSheet("color: #64748b; font-size: 13px;")
+        lbl_hint.setObjectName("stepLabel")
         lbl_hint.setWordWrap(True)
         lay.addWidget(lbl_hint)
 
@@ -73,6 +75,7 @@ class SettingsDialog(QDialog):
         search_row.addWidget(QLabel("🔍 Поиск:"))
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Начните вводить название продукта...")
+        self.search_edit.setToolTip("Фильтр по названию продукта. Таблица обновляется при вводе.")
         self.search_edit.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self.search_edit)
         lay.addLayout(search_row)
@@ -105,12 +108,14 @@ class SettingsDialog(QDialog):
         btn_cancel = QPushButton("Закрыть")
         btn_cancel.setObjectName("btnSecondary")
         btn_cancel.setFixedHeight(36)
+        btn_cancel.setToolTip("Закрыть окно без дополнительных действий")
         btn_cancel.clicked.connect(self.reject)
         btn_row.addWidget(btn_cancel)
 
         btn_save = QPushButton("Сохранить и закрыть")
         btn_save.setObjectName("btnPrimary")
         btn_save.setFixedHeight(36)
+        btn_save.setToolTip("Сохранить настройки и закрыть окно")
         btn_save.clicked.connect(self.accept)
         btn_row.addWidget(btn_save)
 
@@ -157,7 +162,7 @@ class SettingsDialog(QDialog):
             # Чекбокс «Показывать Шт»
             chk = QCheckBox()
             chk.setChecked(show_pcs)
-            chk.setStyleSheet("margin-left: 12px;")
+            chk.setObjectName("tableCheckBox")
             chk_widget = QWidget()
             chk_lay = QHBoxLayout(chk_widget)
             chk_lay.addWidget(chk)

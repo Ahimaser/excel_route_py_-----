@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+# Имя папки данных (не менять — сохраняет совместимость с существующими данными)
 APP_NAME = "ExcelRouteManager"
 log = logging.getLogger(__name__)
 
@@ -66,8 +67,6 @@ DEFAULTS: dict[str, Any] = {
     "settings": {
         "defaultSaveDir": None,
         "showPcsInPreview": True,
-        "xlsSkipHeaderRows": 0,
-        "xlsSkipFooterRows": 0,
     },
     "last_main_routes": None,
     "last_increase_routes": None,
@@ -83,14 +82,19 @@ _desktop_cache: str | None = None
 
 # ─────────────────────────── Внутренние утилиты ───────────────────────────
 
-def _get_data_path() -> Path:
+def get_app_data_dir() -> Path:
+    """Возвращает папку данных приложения (APPDATA/ExcelRouteManager или ~/.config/ExcelRouteManager)."""
     if os.name == "nt":
         base = Path(os.environ.get("APPDATA", Path.home()))
     else:
         base = Path.home() / ".config"
     folder = base / APP_NAME
     folder.mkdir(parents=True, exist_ok=True)
-    return folder / "store.json"
+    return folder
+
+
+def _get_data_path() -> Path:
+    return get_app_data_dir() / "store.json"
 
 
 def _ensure_loaded() -> None:
@@ -127,12 +131,7 @@ def _ensure_loaded() -> None:
         _data["last_main_routes"] = None
     if "last_increase_routes" not in _data:
         _data["last_increase_routes"] = None
-    settings = _data.get("settings") or {}
-    if "xlsSkipHeaderRows" not in settings:
-        settings["xlsSkipHeaderRows"] = 0
-    if "xlsSkipFooterRows" not in settings:
-        settings["xlsSkipFooterRows"] = 0
-    _data["settings"] = settings
+    _data["settings"] = _data.get("settings") or {}
     # Миграция: labelsFor, labelPrintMode, labelsEnabled для отделов/подотделов
     for dept in _data.get("departments", []):
         if dept.get("labelsFor") is None:
@@ -286,6 +285,28 @@ def remove_alias(variant: str) -> None:
         _flush()
 
 
+def remove_product(name: str) -> bool:
+    """
+    Удаляет продукт из справочника по имени и все связанные алиасы
+    (где продукт — вариант или каноническое название).
+    Возвращает True, если продукт был найден и удалён.
+    """
+    global _dirty
+    _ensure_loaded()
+    products: list = _data.get("products", [])
+    new_products = [p for p in products if p.get("name") != name]
+    if len(new_products) == len(products):
+        return False
+    aliases: dict = _data.get("product_aliases", {})
+    to_remove = [v for v, c in aliases.items() if v == name or c == name]
+    for v in to_remove:
+        del aliases[v]
+    _data["products"] = new_products
+    _dirty = True
+    _flush()
+    return True
+
+
 def resolve_product_name(name: str) -> str:
     """
     Возвращает каноническое название продукта.
@@ -403,3 +424,13 @@ def get_last_routes(file_type: str) -> dict | None:
     _ensure_loaded()
     key = "last_main_routes" if file_type == "main" else "last_increase_routes"
     return _data.get(key)
+
+
+def clear_last_routes() -> None:
+    """Очищает последние сохранённые маршруты (основной и довоз)."""
+    global _dirty
+    _ensure_loaded()
+    _data["last_main_routes"] = None
+    _data["last_increase_routes"] = None
+    _dirty = True
+    _flush()

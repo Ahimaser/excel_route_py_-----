@@ -19,15 +19,15 @@ from datetime import date, datetime, timedelta
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QTableView, QLineEdit,
+    QFrame, QTableView, QLineEdit, QApplication,
     QComboBox, QHeaderView, QAbstractItemView,
     QMessageBox, QFileDialog, QProgressBar, QMenu
 )
 from PyQt6.QtCore import (
-    Qt, pyqtSignal, QThread, QObject, QTimer,
+    Qt, pyqtSignal, QThread, QObject, QTimer, QEvent,
     QAbstractTableModel, QModelIndex, QVariant
 )
-from PyQt6.QtGui import QFont, QColor, QBrush
+from PyQt6.QtGui import QFont, QColor, QBrush, QWheelEvent, QShortcut, QKeySequence
 
 from core import data_store, excel_generator
 from core.xls_parser import ROUTE_SIGN
@@ -56,11 +56,28 @@ class RoutesTableModel(QAbstractTableModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._rows: list[dict] = []
+        self._font_size = 13
         self._bold_font = QFont()
         self._bold_font.setBold(True)
+        self._bold_font.setPointSize(self._font_size)
         self._red_color  = QColor("#dc2626")
         self._blue_color = QColor("#2563eb")
         self._gray_bg    = QColor("#f8fafc")
+
+    def set_font_size(self, point_size: int) -> None:
+        """Меняет размер шрифта (для Ctrl+колесо мыши)."""
+        self._font_size = max(8, min(24, point_size))
+        self._bold_font.setPointSize(self._font_size)
+
+    def get_font_size(self) -> int:
+        return self._font_size
+
+    def emit_data_changed(self) -> None:
+        """Обновляет отображение после смены шрифта."""
+        if self._rows:
+            top = self.index(0, 0)
+            bottom = self.index(len(self._rows) - 1, 3)
+            self.dataChanged.emit(top, bottom, [Qt.ItemDataRole.FontRole])
 
     def set_rows(self, rows: list[dict]) -> None:
         self.beginResetModel()
@@ -121,7 +138,8 @@ class RoutesTableModel(QAbstractTableModel):
 
         elif role == Qt.ItemDataRole.SizeHintRole:
             from PyQt6.QtCore import QSize
-            return QSize(-1, 36 if is_route else 30)
+            base = max(28, self._font_size + 14)
+            return QSize(-1, base + 8 if is_route else base)
 
         return QVariant()
 
@@ -305,12 +323,6 @@ class EditPanel(QFrame):
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setMinimumWidth(260)
         self.setMaximumWidth(320)
-        self.setStyleSheet(
-            "#editPanel {"
-            "  background: #f8fafc;"
-            "  border-left: 2px solid #e2e8f0;"
-            "}"
-        )
         self._route_ref: dict | None = None
 
         lay = QVBoxLayout(self)
@@ -319,52 +331,44 @@ class EditPanel(QFrame):
 
         title_row = QHBoxLayout()
         lbl_title = QLabel("Редактировать номер")
-        lbl_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #1e293b;")
+        lbl_title.setObjectName("panelTitle")
         title_row.addWidget(lbl_title)
         title_row.addStretch()
-        btn_close = QPushButton("x")
+        btn_close = QPushButton("×")
+        btn_close.setObjectName("btnPanelClose")
         btn_close.setFixedSize(24, 24)
-        btn_close.setStyleSheet(
-            "QPushButton { background: transparent; border: none; color: #94a3b8;"
-            "  font-size: 14px; font-weight: bold; }"
-            "QPushButton:hover { color: #dc2626; }"
-        )
+        btn_close.setToolTip("Закрыть панель")
         btn_close.clicked.connect(self._on_close)
         title_row.addWidget(btn_close)
         lay.addLayout(title_row)
 
         sep = QFrame()
+        sep.setObjectName("separator")
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #e2e8f0;")
         lay.addWidget(sep)
 
         lbl_addr_caption = QLabel("Адрес:")
-        lbl_addr_caption.setStyleSheet("color: #64748b; font-size: 11px;")
+        lbl_addr_caption.setObjectName("panelCaption")
         lay.addWidget(lbl_addr_caption)
 
         self.lbl_address = QLabel("")
+        self.lbl_address.setObjectName("panelReadOnly")
         self.lbl_address.setWordWrap(True)
         self.lbl_address.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
-        self.lbl_address.setStyleSheet(
-            "background: #fff; border: 1px solid #e2e8f0; border-radius: 6px;"
-            "padding: 8px; font-size: 12px; color: #1e293b;"
-        )
         lay.addWidget(self.lbl_address)
 
         lbl_cur_caption = QLabel("Текущий номер:")
-        lbl_cur_caption.setStyleSheet("color: #64748b; font-size: 11px;")
+        lbl_cur_caption.setObjectName("panelCaption")
         lay.addWidget(lbl_cur_caption)
 
         self.lbl_current = QLabel("")
-        self.lbl_current.setStyleSheet(
-            "font-size: 22px; font-weight: bold; color: #2563eb; padding: 4px 0px;"
-        )
+        self.lbl_current.setObjectName("panelHighlight")
         lay.addWidget(self.lbl_current)
 
         lbl_new_caption = QLabel("Новый номер:")
-        lbl_new_caption.setStyleSheet("color: #64748b; font-size: 11px;")
+        lbl_new_caption.setObjectName("panelCaption")
         lay.addWidget(lbl_new_caption)
 
         self.le_new_num = QLineEdit()
@@ -452,6 +456,7 @@ class PreviewGeneralPage(QWidget):
     go_back         = pyqtSignal()
     go_dept_preview = pyqtSignal()
     go_settings     = pyqtSignal()   # Переход к настройкам Шт
+    go_clear_routes = pyqtSignal()    # Очистить маршруты и вернуться на главную
 
     def __init__(self, app_state: dict):
         super().__init__()
@@ -484,6 +489,7 @@ class PreviewGeneralPage(QWidget):
         h_row = QHBoxLayout()
         btn_back = QPushButton("< Назад")
         btn_back.setObjectName("btnBack")
+        btn_back.setToolTip("Вернуться на страницу обработки файлов")
         btn_back.clicked.connect(self.go_back.emit)
         h_row.addWidget(btn_back)
 
@@ -500,6 +506,11 @@ class PreviewGeneralPage(QWidget):
         self.lbl_no_num.setObjectName("badgeRed")
         self.lbl_no_num.setVisible(False)
         h_row.addWidget(self.lbl_no_num)
+
+        self.lbl_font_size = QLabel("Размер текста: 13")
+        self.lbl_font_size.setObjectName("badge")
+        self.lbl_font_size.setToolTip("Ctrl + колёсико мыши над таблицей — изменить")
+        h_row.addWidget(self.lbl_font_size)
 
         btn_settings = QPushButton("⚙ Настройки Шт")
         btn_settings.setObjectName("btnSecondary")
@@ -554,6 +565,7 @@ class PreviewGeneralPage(QWidget):
 
         btn_reset = QPushButton("Сбросить")
         btn_reset.setObjectName("btnSecondary")
+        btn_reset.setToolTip("Сбросить поиск и фильтр по продукту")
         btn_reset.clicked.connect(self._reset_filters)
         filter_lay.addWidget(btn_reset)
 
@@ -568,18 +580,26 @@ class PreviewGeneralPage(QWidget):
         self.table = QTableView()
         self.table.setModel(self._model)
         hdr = self.table.horizontalHeader()
+        hdr.setMinimumSectionSize(90)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.clicked.connect(self._on_cell_clicked)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
+        self._table_font_size = 13
+        self.table.setFont(QFont("", self._table_font_size))
+        self.table.installEventFilter(self)
+        self.table.setToolTip(
+            "Ctrl + колёсико мыши — изменить размер текста. "
+            "Ctrl/Shift + клик — выбрать несколько маршрутов. Правый клик — удалить или исключить."
+        )
         content_row.addWidget(self.table, stretch=1)
 
         # Боковая панель
@@ -594,13 +614,21 @@ class PreviewGeneralPage(QWidget):
         # Нижняя панель
         bottom_row = QHBoxLayout()
         self.lbl_excluded = QLabel("")
-        self.lbl_excluded.setStyleSheet("color: #64748b; font-size: 12px;")
+        self.lbl_excluded.setObjectName("hintLabel")
         bottom_row.addWidget(self.lbl_excluded)
         bottom_row.addStretch()
+
+        self.btn_clear = QPushButton("Очистить маршруты")
+        self.btn_clear.setObjectName("btnDanger")
+        self.btn_clear.setFixedHeight(40)
+        self.btn_clear.setToolTip("Удалить загруженные данные (если загружен неправильный файл)")
+        self.btn_clear.clicked.connect(self._on_clear_routes)
+        bottom_row.addWidget(self.btn_clear)
 
         self.btn_generate = QPushButton("Создать файл «Общие маршруты»")
         self.btn_generate.setObjectName("btnPrimary")
         self.btn_generate.setFixedHeight(40)
+        self.btn_generate.setToolTip("Создать Excel-файл «Общие маршруты» в выбранную папку сохранения")
         self.btn_generate.clicked.connect(self._on_generate)
         bottom_row.addWidget(self.btn_generate)
 
@@ -617,6 +645,28 @@ class PreviewGeneralPage(QWidget):
         self.progress.setRange(0, 0)
         self.progress.setVisible(False)
         root_lay.addWidget(self.progress)
+
+        shortcut_escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        shortcut_escape.activated.connect(self._on_escape_key)
+
+    def _on_escape_key(self) -> None:
+        """Закрыть панель редактирования номера маршрута по Escape."""
+        if self.edit_panel.isVisible():
+            self.edit_panel._on_close()
+
+    def eventFilter(self, obj, event):
+        """Ctrl + колёсико мыши — масштаб текста в таблице предпросмотра."""
+        if obj == self.table and event.type() == QEvent.Type.Wheel:
+            if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier:
+                delta = event.angleDelta().y()
+                step = 1 if delta > 0 else -1
+                self._table_font_size = max(8, min(24, self._table_font_size + step))
+                self._model.set_font_size(self._table_font_size)
+                self.table.setFont(QFont("", self._table_font_size))
+                self._model.emit_data_changed()
+                self.lbl_font_size.setText(f"Размер текста: {self._table_font_size}")
+                return True
+        return super().eventFilter(obj, event)
 
     # ─────────────────────────── Обновление ───────────────────────────────
 
@@ -685,6 +735,7 @@ class PreviewGeneralPage(QWidget):
 
         # Обновляем виртуальную модель -- мгновенно, без создания виджетов
         self._model.set_rows(rows_data)
+        self.table.resizeColumnsToContents()
 
         # Если панель открыта, обновляем адрес и прокручиваем к изменённому маршруту
         if current_route_ref is not None and self.edit_panel.isVisible():
@@ -771,35 +822,22 @@ class PreviewGeneralPage(QWidget):
             log.debug("route_num_saved: значение не изменилось ('%s')", old_num)
             return
 
-         # Обновляем оригинальный словарь в filteredRoutes
-        # route_ref в rows_data — это прямая ссылка на этот объект
-        route["routeNum"] = new_val
-        log.debug("route_num_saved: '%s' -> '%s', id=%d", old_num, new_val, id(route))
-        # Проверяем что объект действительно в filteredRoutes
         all_routes = self.app_state.get("filteredRoutes", [])
-        found_idx = next((i for i, r in enumerate(all_routes) if r is route), -1)
+        route_address = route.get("address", "")
+        # Ищем маршрут по адресу (стабильный ключ; route_ref может быть устаревшим)
+        found_idx = next(
+            (i for i, r in enumerate(all_routes) if r.get("address", "") == route_address),
+            -1
+        )
         if found_idx == -1:
-            # route_ref указывает на устаревший объект (не из filteredRoutes).
-            # Ищем маршрут по адресу и обновляем правильный объект.
-            route_address = route.get("address", "")
-            fallback_idx = next(
-                (i for i, r in enumerate(all_routes)
-                 if r.get("address", "") == route_address),
-                -1
-            )
-            if fallback_idx != -1:
-                real_route = all_routes[fallback_idx]
-                real_route["routeNum"] = new_val
-                # Перенаправляем route на реальный объект для дальнейших операций
-                route = real_route
-                log.debug("route_num_saved: fallback по address, обновлён filteredRoutes[%d]",
-                          fallback_idx)
-            else:
-                log.warning("route_num_saved: маршрут НЕ найден ни по id ни по address — "
-                            "изменение потеряется")
-        else:
-            log.debug("  маршрут найден в filteredRoutes[%d], routeNum=%s",
-                      found_idx, all_routes[found_idx].get("routeNum"))
+            found_idx = next((i for i, r in enumerate(all_routes) if r is route), -1)
+        if found_idx == -1:
+            log.warning("route_num_saved: маршрут не найден в filteredRoutes (address=%r)",
+                        route_address[:50] if route_address else "")
+            return
+        route = all_routes[found_idx]
+        route["routeNum"] = new_val
+        log.debug("route_num_saved: '%s' -> '%s', filteredRoutes[%d]", old_num, new_val, found_idx)
 
         # Обновляем номер в адресной строке
         old_address = route.get("address", "")
@@ -848,33 +886,111 @@ class PreviewGeneralPage(QWidget):
     def _on_panel_closed(self) -> None:
         self.table.clearSelection()
 
+    def _on_clear_routes(self) -> None:
+        """Очистить загруженные маршруты (если загружен неправильный файл)."""
+        reply = QMessageBox.question(
+            self, "Очистить маршруты",
+            "Удалить все загруженные маршруты и последние сохранённые данные?\n"
+            "После этого можно загрузить новые файлы.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        data_store.clear_last_routes()
+        self.app_state.update({
+            "filePaths": [], "routes": [], "uniqueProducts": [],
+            "filteredRoutes": [], "routeCategory": "ШК",
+        })
+        self.go_clear_routes.emit()
+
     # ─────────────────────────── Контекстное меню ─────────────────────────
+
+    def _get_selected_route_refs(self) -> list:
+        """Возвращает уникальные route_ref из выбранных строк."""
+        indexes = self.table.selectionModel().selectedRows()
+        seen: set = set()
+        result: list = []
+        for idx in indexes:
+            rd = self._model.get_row(idx.row())
+            if rd is None:
+                continue
+            ref = rd.get("route_ref")
+            if ref is not None and id(ref) not in seen:
+                seen.add(id(ref))
+                result.append(ref)
+        return result
 
     def _on_context_menu(self, pos) -> None:
         index = self.table.indexAt(pos)
         if not index.isValid():
             return
         rd = self._model.get_row(index.row())
-        if rd is None or rd["type"] != "route":
+        if rd is None:
             return
 
-        menu  = QMenu(self)
-        route = rd["route_ref"]
+        selected_refs = self._get_selected_route_refs()
+        if not selected_refs:
+            return
 
-        if route.get("excluded"):
-            act_toggle = menu.addAction("Включить маршрут")
+        menu = QMenu(self)
+        act_delete = None
+        act_exclude = None
+        act_toggle = None
+        act_edit = None
+
+        if len(selected_refs) > 1:
+            act_delete = menu.addAction(f"Удалить выбранные ({len(selected_refs)} маршрутов)")
+            excluded_count = sum(1 for r in selected_refs if r.get("excluded"))
+            if excluded_count == 0:
+                act_exclude = menu.addAction(f"Исключить выбранные ({len(selected_refs)})")
+            else:
+                act_exclude = menu.addAction(f"Включить выбранные ({len(selected_refs)})")
         else:
-            act_toggle = menu.addAction("Исключить маршрут")
-
-        act_edit = menu.addAction("Изменить номер маршрута...")
+            route = selected_refs[0]
+            if route.get("excluded"):
+                act_toggle = menu.addAction("Включить маршрут")
+            else:
+                act_toggle = menu.addAction("Исключить маршрут")
+            act_edit = menu.addAction("Изменить номер маршрута...")
+            act_delete = menu.addAction("Удалить маршрут")
 
         action = menu.exec(self.table.viewport().mapToGlobal(pos))
 
-        if action == act_toggle:
+        if action == act_delete:
+            self._delete_routes(selected_refs)
+        elif action == act_exclude:
+            for r in selected_refs:
+                r["excluded"] = not r.get("excluded", False)
+            self._render_table()
+        elif action == act_toggle:
             route["excluded"] = not route.get("excluded", False)
             self._render_table()
         elif action == act_edit:
             self.edit_panel.load(route)
+
+    def _delete_routes(self, route_refs: list) -> None:
+        """Удаляет маршруты из app_state (routes и filteredRoutes)."""
+        if not route_refs:
+            return
+        n = len(route_refs)
+        msg = f"Удалить {n} маршрут(ов)?" if n > 1 else "Удалить этот маршрут?"
+        reply = QMessageBox.question(
+            self, "Удаление маршрутов", msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        addresses = {r.get("address", "") for r in route_refs}
+        routes = [r for r in self.app_state.get("routes", []) if r.get("address", "") not in addresses]
+        filtered = [r for r in self.app_state.get("filteredRoutes", []) if r.get("address", "") not in addresses]
+        self.app_state["routes"] = routes
+        self.app_state["filteredRoutes"] = filtered
+        self.edit_panel.clear()
+        self._render_table()
+        if hasattr(self.app_state.get("set_status"), "__call__"):
+            self.app_state["set_status"](f"Удалено маршрутов: {n}")
 
     # ─────────────────────────── Генерация ────────────────────────────────────
 
@@ -883,8 +999,12 @@ class PreviewGeneralPage(QWidget):
         active_routes = [r for r in routes if not r.get("excluded")]
 
         if not active_routes:
-            QMessageBox.warning(self, "Нет маршрутов",
-                                "Нет маршрутов для создания файла.")
+            total = len(routes)
+            if total > 0:
+                msg = "Все маршруты исключены. Снимите исключение (правый клик → Исключить/Включить) или добавьте маршруты."
+            else:
+                msg = "Нет маршрутов для создания файла."
+            QMessageBox.warning(self, "Нет маршрутов", msg)
             return
 
         # Проверяем маршруты с неопределённым или пустым номером

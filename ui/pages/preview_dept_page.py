@@ -16,10 +16,10 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QMessageBox, QFileDialog, QComboBox,
-    QProgressBar, QTabWidget
+    QProgressBar, QTabWidget, QApplication
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject
-from PyQt6.QtGui import QFont, QBrush, QColor
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, QEvent
+from PyQt6.QtGui import QFont, QBrush, QColor, QWheelEvent
 
 from core import data_store, excel_generator
 from ui.pages import departments_page as dept_mod
@@ -59,11 +59,14 @@ class PreviewDeptPage(QWidget):
     """Предпросмотр и генерация файлов по отделам."""
 
     go_back = pyqtSignal()
+    go_clear_routes = pyqtSignal()
 
     def __init__(self, app_state: dict):
         super().__init__()
         self.app_state   = app_state
         self._dept_groups: list[dict] = []
+        self._table_font_size = 13
+        self._dept_tables: list[QTableWidget] = []
         self._build_ui()
 
     def _build_ui(self):
@@ -74,7 +77,7 @@ class PreviewDeptPage(QWidget):
         h_row = QHBoxLayout()
         btn_back = QPushButton("← Назад")
         btn_back.setObjectName("btnBack")
-        btn_back.setToolTip("Вернуться на главную страницу")
+        btn_back.setToolTip("Вернуться на страницу «Общие маршруты» (Escape)")
         btn_back.clicked.connect(self.go_back.emit)
         h_row.addWidget(btn_back)
 
@@ -82,6 +85,10 @@ class PreviewDeptPage(QWidget):
         self.lbl_title.setObjectName("sectionTitle")
         h_row.addWidget(self.lbl_title)
         h_row.addStretch()
+        self.lbl_font_size = QLabel("Размер текста: 13")
+        self.lbl_font_size.setObjectName("badge")
+        self.lbl_font_size.setToolTip("Ctrl + колёсико мыши над таблицей — изменить")
+        h_row.addWidget(self.lbl_font_size)
         lay.addLayout(h_row)
 
         # Фильтр по отделу/подотделу
@@ -122,6 +129,13 @@ class PreviewDeptPage(QWidget):
         self.btn_labels.setToolTip("Создать этикетки в папку «Этикетки на ДД.ММ.ГГГГ» (завтра)")
         self.btn_labels.clicked.connect(self._on_labels_from_templates)
         bottom_row.addWidget(self.btn_labels)
+
+        self.btn_clear = QPushButton("Очистить маршруты")
+        self.btn_clear.setObjectName("btnDanger")
+        self.btn_clear.setFixedHeight(40)
+        self.btn_clear.setToolTip("Удалить загруженные данные (если загружен неправильный файл)")
+        self.btn_clear.clicked.connect(self._on_clear_routes)
+        bottom_row.addWidget(self.btn_clear)
 
         lay.addLayout(bottom_row)
 
@@ -268,6 +282,7 @@ class PreviewDeptPage(QWidget):
         self.combo_dept_filter.blockSignals(False)
 
         self.tabs.clear()
+        self._dept_tables.clear()
 
         if not self._dept_groups:
             empty = QLabel(
@@ -277,7 +292,7 @@ class PreviewDeptPage(QWidget):
                 "  • Созданы отделы с привязанными продуктами"
             )
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty.setStyleSheet("color: #64748b; font-size: 14px;")
+            empty.setObjectName("stepLabel")
             self.tabs.addTab(empty, "Нет данных")
             return
 
@@ -304,13 +319,22 @@ class PreviewDeptPage(QWidget):
             f"Откройте «Справочники → Отделы и продукты» и привяжите все продукты к отделам."
         )
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet("color: #dc2626; font-size: 14px;")
+        lbl.setObjectName("warningLabel")
         lbl.setWordWrap(True)
         blay.addWidget(lbl)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
         btn_open = QPushButton("Открыть Отделы и продукты")
         btn_open.setObjectName("btnPrimary")
+        btn_open.setToolTip("Открыть окно привязки продуктов к отделам")
         btn_open.clicked.connect(lambda: self._open_depts_and_retry())
-        blay.addWidget(btn_open, alignment=Qt.AlignmentFlag.AlignCenter)
+        btn_retry = QPushButton("Проверить снова")
+        btn_retry.setObjectName("btnSecondary")
+        btn_retry.setToolTip("Повторно проверить привязку после изменений в «Отделы и продукты»")
+        btn_retry.clicked.connect(self.refresh)
+        btn_row.addWidget(btn_open, alignment=Qt.AlignmentFlag.AlignCenter)
+        btn_row.addWidget(btn_retry, alignment=Qt.AlignmentFlag.AlignCenter)
+        blay.addLayout(btn_row)
         self.tabs.addTab(blocked, "Заблокировано")
 
     def _open_depts_and_retry(self):
@@ -324,21 +348,26 @@ class PreviewDeptPage(QWidget):
         lay.setSpacing(8)
 
         lbl = QLabel(f"Маршрутов: {len(group['routes'])}")
-        lbl.setStyleSheet("color: #64748b; font-size: 12px;")
+        lbl.setObjectName("hintLabel")
         lay.addWidget(lbl)
 
         table = QTableWidget()
         table.setColumnCount(4)
         table.setHorizontalHeaderLabels(["№ маршрута", "Адрес / Продукт", "Ед. изм.", "Кол-во"])
         hdr = table.horizontalHeader()
+        hdr.setMinimumSectionSize(90)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.verticalHeader().setVisible(False)
         table.setAlternatingRowColors(True)
+        table.setFont(QFont("", self._table_font_size))
+        table.installEventFilter(self)
+        table.setToolTip("Ctrl + колёсико мыши — изменить размер текста")
+        self._dept_tables.append(table)
         lay.addWidget(table)
 
         self._fill_dept_table(table, group["routes"], prod_map)
@@ -352,6 +381,22 @@ class PreviewDeptPage(QWidget):
         lay.addLayout(btn_row)
 
         return w
+
+    def eventFilter(self, obj, event):
+        """Ctrl + колёсико мыши — масштаб текста в таблицах предпросмотра."""
+        if event.type() == QEvent.Type.Wheel and obj in self._dept_tables:
+            if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier:
+                delta = event.angleDelta().y()
+                step = 1 if delta > 0 else -1
+                self._table_font_size = max(8, min(24, self._table_font_size + step))
+                self.lbl_font_size.setText(f"Размер текста: {self._table_font_size}")
+                prod_map = data_store.get_products_map()
+                for i, tbl in enumerate(self._dept_tables):
+                    tbl.setFont(QFont("", self._table_font_size))
+                    if i < len(self._dept_groups):
+                        self._fill_dept_table(tbl, self._dept_groups[i]["routes"], prod_map)
+                return True
+        return super().eventFilter(obj, event)
 
     def _fill_dept_table(self, table: QTableWidget, routes: list, prod_map: dict):
         """
@@ -374,6 +419,7 @@ class PreviewDeptPage(QWidget):
 
         bold_font = QFont()
         bold_font.setBold(True)
+        bold_font.setPointSize(self._table_font_size)
         gray_bg   = QBrush(QColor("#f8fafc"))
         FLAG_NO_EDIT = ~Qt.ItemFlag.ItemIsEditable
 
@@ -409,6 +455,7 @@ class PreviewDeptPage(QWidget):
                 current_row += 1
 
         table.setUpdatesEnabled(True)
+        table.resizeColumnsToContents()
 
     def _fmt_qty(self, prod: dict, prod_map: dict) -> str:
         qty = prod.get("quantity")
@@ -532,3 +579,19 @@ class PreviewDeptPage(QWidget):
                 QMessageBox.information(self, "Нет файлов", "Нет этикеток для создания.")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
+
+    def _on_clear_routes(self):
+        reply = QMessageBox.question(
+            self, "Очистить маршруты",
+            "Удалить все загруженные маршруты и последние сохранённые данные?\n"
+            "После этого можно загрузить новые файлы.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            data_store.clear_last_routes()
+            self.app_state.update({
+                "filePaths": [], "routes": [], "uniqueProducts": [],
+                "filteredRoutes": [], "routeCategory": "ШК",
+            })
+            self.go_clear_routes.emit()

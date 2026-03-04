@@ -66,6 +66,16 @@ def _get_styles() -> dict[str, xlwt.XFStyle]:
             s.borders = borders
         return s
 
+    # Жёлтый фон для номера маршрута в этикетках
+    pattern_yellow = xlwt.Pattern()
+    pattern_yellow.pattern = xlwt.Pattern.SOLID_PATTERN
+    pattern_yellow.pattern_fore_colour = xlwt.Style.colour_map["yellow"]
+    style_yellow = xlwt.XFStyle()
+    style_yellow.font = font_normal
+    style_yellow.alignment = align_top
+    style_yellow.borders = borders
+    style_yellow.pattern = pattern_yellow
+
     _STYLES = {
         "header":      _make(font_bold,   align_center),
         "header_wrap": _make(font_bold,   align_wrap),
@@ -73,6 +83,7 @@ def _get_styles() -> dict[str, xlwt.XFStyle]:
         "cell_wrap":   _make(font_normal, align_wrap),
         "num":         _make(font_normal, align_top),
         "title":       _make(font_bold,   align_top, has_borders=False),
+        "cell_yellow": style_yellow,
     }
     return _STYLES
 
@@ -183,11 +194,34 @@ def _safe_filename(name: str) -> str:
 
 
 def extract_house_number(address: str) -> str:
-    """Извлекает номер дома/строения из адреса для этикетки. Упрощённо — возвращает адрес до 50 символов."""
+    """
+    Извлекает номер дома, строения или цифры перед символом № (U+2116) из адреса для этикетки.
+    Порядок поиска: д.5, стр.2, строение 3, корп.1, цифры перед №.
+    """
     if not address:
         return ""
     s = str(address).strip()
-    return s[:50] if len(s) > 50 else s
+    # д.5, д. 5, д.5а, д.109/1
+    m = re.search(r"д\.\s*(\d+(?:/\d+)?[а-яА-Яa-zA-Z]*)", s, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    # стр.2, стр. 2
+    m = re.search(r"стр\.\s*(\d+)", s, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    # строение 3, строен. 3
+    m = re.search(r"строен\.?\s*(\d+)", s, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    # корп.1
+    m = re.search(r"корп\.\s*(\d+)", s, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    # цифры перед символом № (U+2116)
+    m = re.search(r"(\d+)\s*[№\u2116]", s)
+    if m:
+        return m.group(1)
+    return ""
 
 
 def _label_print_mode_for_dept(dept_key: str | None, departments_ref: list | None) -> str:
@@ -251,7 +285,11 @@ def _load_template_matrix(template_path: str) -> tuple[int, int, list]:
 
 def _write_label_block(ws: Any, matrix: list, nrows: int, ncols: int, start_row: int,
                       route_num: str, house: str, qty_val: Any, styles: dict) -> None:
-    """Пишет один блок этикетки: копия шаблона (matrix) с последней строкой = маршрут, дом, количество."""
+    """
+    Пишет один блок этикетки: копия шаблона (matrix) с последней строкой = маршрут, дом, количество.
+    Столбец 1 (номер маршрута) — жёлтый фон. Столбец 2 — дом/строение/цифры перед №. Столбец 3 — количество.
+    """
+    style_yellow = styles.get("cell_yellow", styles["cell"])
     for r in range(nrows):
         for c in range(ncols):
             val = matrix[r][c] if r < len(matrix) and c < len(matrix[r]) else ""
@@ -262,13 +300,19 @@ def _write_label_block(ws: Any, matrix: list, nrows: int, ncols: int, start_row:
                     val = house
                 elif c == 2:
                     val = qty_val if qty_val is not None else ""
+            if r == nrows - 1 and c == 0:
+                cell_style = style_yellow
+            elif isinstance(val, (int, float)):
+                cell_style = styles.get("num", styles["cell"])
+            else:
+                cell_style = styles["cell"]
             try:
                 if isinstance(val, (int, float)):
-                    ws.write(start_row + r, c, val, styles.get("num", styles["cell"]))
+                    ws.write(start_row + r, c, val, cell_style)
                 else:
-                    ws.write(start_row + r, c, str(val), styles["cell"])
+                    ws.write(start_row + r, c, str(val), cell_style)
             except Exception:
-                ws.write(start_row + r, c, str(val), styles["cell"])
+                ws.write(start_row + r, c, str(val), cell_style)
 
 
 def generate_labels_from_templates(

@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QFileDialog, QListWidget, QListWidgetItem,
     QButtonGroup, QRadioButton, QProgressBar, QSizePolicy,
-    QScrollArea, QMessageBox, QSpinBox, QComboBox,
+    QScrollArea, QMessageBox, QComboBox,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
@@ -35,14 +35,10 @@ class ParseWorker(QObject):
     def __init__(
         self,
         file_paths: list[str],
-        skip_header_rows: int = 0,
-        skip_footer_rows: int = 0,
         file_categories: list[str] | None = None,
     ):
         super().__init__()
         self.file_paths = file_paths
-        self.skip_header_rows = skip_header_rows
-        self.skip_footer_rows = skip_footer_rows
         self.file_categories = file_categories
 
     def run(self):
@@ -73,12 +69,12 @@ class DropZone(QFrame):
 
         self.lbl_icon = QLabel("📂")
         self.lbl_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_icon.setStyleSheet("font-size: 32px;")
+        self.lbl_icon.setObjectName("dropZoneIcon")
         lay.addWidget(self.lbl_icon)
 
         self.lbl_text = QLabel("Перетащите .xls файлы сюда\nили нажмите для выбора")
         self.lbl_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_text.setStyleSheet("color: #64748b; font-size: 13px;")
+        self.lbl_text.setObjectName("stepLabel")
         lay.addWidget(self.lbl_text)
 
     def mousePressEvent(self, event):
@@ -153,8 +149,7 @@ class HomePage(QWidget):
         self.btn_process.setMinimumWidth(200)
         self.btn_process.setEnabled(False)
         self.btn_process.setToolTip(
-            "Парсить выбранные XLS файлы и перейти к предпросмотру маршрутов.\n"
-            "Горячая клавиша: Ctrl+S"
+            "Парсить выбранные XLS файлы и перейти к предпросмотру маршрутов"
         )
         self.btn_process.clicked.connect(self._on_process)
         btn_row.addWidget(self.btn_process)
@@ -182,7 +177,7 @@ class HomePage(QWidget):
         h_row.addWidget(badge)
 
         lbl = QLabel(title)
-        lbl.setStyleSheet("font-size: 14px; font-weight: 600; color: #1e293b;")
+        lbl.setObjectName("cardTitle")
         h_row.addWidget(lbl)
         h_row.addStretch()
         lay.addLayout(h_row)
@@ -226,7 +221,7 @@ class HomePage(QWidget):
         lay.setSpacing(16)
 
         lbl_shk = QLabel("Файлы для ШК (школы)")
-        lbl_shk.setStyleSheet("font-weight: 600; color: #475569; font-size: 13px;")
+        lbl_shk.setObjectName("subsectionLabel")
         lay.addWidget(lbl_shk)
         self.drop_zone_shk = DropZone()
         self.drop_zone_shk.setToolTip("Перетащите .xls файлы для школ или нажмите для выбора.")
@@ -251,7 +246,7 @@ class HomePage(QWidget):
         lay.addLayout(btn_shk)
 
         lbl_sd = QLabel("Файлы для СД (сады)")
-        lbl_sd.setStyleSheet("font-weight: 600; color: #475569; font-size: 13px;")
+        lbl_sd.setObjectName("subsectionLabel")
         lay.addWidget(lbl_sd)
         self.drop_zone_sd = DropZone()
         self.drop_zone_sd.setToolTip("Перетащите .xls файлы для садов или нажмите для выбора.")
@@ -275,22 +270,6 @@ class HomePage(QWidget):
         btn_sd.addStretch()
         lay.addLayout(btn_sd)
 
-        skip_row = QHBoxLayout()
-        skip_row.addWidget(QLabel("Пропуск строк в начале:"))
-        self.spin_skip_header = QSpinBox()
-        self.spin_skip_header.setMinimum(0)
-        self.spin_skip_header.setMaximum(500)
-        self.spin_skip_header.setValue((data_store.get("settings") or {}).get("xlsSkipHeaderRows", 0))
-        self.spin_skip_header.valueChanged.connect(self._on_skip_header_changed)
-        skip_row.addWidget(self.spin_skip_header)
-        skip_row.addWidget(QLabel("в конце:"))
-        self.spin_skip_footer = QSpinBox()
-        self.spin_skip_footer.setMinimum(0)
-        self.spin_skip_footer.setMaximum(500)
-        self.spin_skip_footer.setValue((data_store.get("settings") or {}).get("xlsSkipFooterRows", 0))
-        self.spin_skip_footer.valueChanged.connect(self._on_skip_footer_changed)
-        skip_row.addStretch()
-        lay.addLayout(skip_row)
         return w
 
     def _build_step3(self) -> QWidget:
@@ -300,7 +279,7 @@ class HomePage(QWidget):
         lay.setSpacing(12)
 
         self.lbl_save_dir = QLabel()
-        self.lbl_save_dir.setStyleSheet("color: #475569; font-size: 13px;")
+        self.lbl_save_dir.setObjectName("stepLabel")
         self._update_save_dir_label()
         lay.addWidget(self.lbl_save_dir, 1)
 
@@ -379,16 +358,6 @@ class HomePage(QWidget):
         total = len(self._file_paths_shk) + len(self._file_paths_sd)
         self.btn_process.setEnabled(total > 0)
 
-    def _on_skip_header_changed(self, value: int):
-        s = data_store.get("settings") or {}
-        s["xlsSkipHeaderRows"] = value
-        data_store.set_key("settings", s)
-
-    def _on_skip_footer_changed(self, value: int):
-        s = data_store.get("settings") or {}
-        s["xlsSkipFooterRows"] = value
-        data_store.set_key("settings", s)
-
     def _choose_save_dir(self):
         d = QFileDialog.getExistingDirectory(
             self, "Выберите папку сохранения",
@@ -430,12 +399,7 @@ class HomePage(QWidget):
         self.progress_bar.setVisible(True)
 
         self._thread = QThread()
-        self._worker = ParseWorker(
-            file_paths,
-            skip_header_rows=self.spin_skip_header.value(),
-            skip_footer_rows=self.spin_skip_footer.value(),
-            file_categories=file_categories,
-        )
+        self._worker = ParseWorker(file_paths, file_categories=file_categories)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.finished.connect(self._on_parse_done)
@@ -489,7 +453,9 @@ class HomePage(QWidget):
             try:
                 from ui.pages.new_products_dialog import run_new_products_dialog
                 decisions = run_new_products_dialog(self.window(), new_items)
-            except Exception:
+            except Exception as e:
+                import logging
+                logging.getLogger("app").exception("Диалог новых продуктов: %s", e)
                 decisions = [{"name": it["name"], "unit": it.get("unit", ""), "action": "new"} for it in new_items]
             updated = data_store.get("products") or []
             for d in decisions:

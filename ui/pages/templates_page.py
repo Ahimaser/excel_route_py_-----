@@ -21,6 +21,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
 
 from core import data_store
+from ui.styles import STYLESHEET
 from ui.widgets import CommitLineEdit
 
 
@@ -155,7 +156,7 @@ class TemplateEditorDialog(QDialog):
 
         # Подсказка о формате
         self.lbl_fmt_hint = QLabel()
-        self.lbl_fmt_hint.setStyleSheet("color: #2563eb; font-size: 12px; padding: 4px 0;")
+        self.lbl_fmt_hint.setObjectName("infoHint")
         self.lbl_fmt_hint.setWordWrap(True)
         root.addWidget(self.lbl_fmt_hint)
         self._update_fmt_hint(current_fmt)
@@ -165,7 +166,7 @@ class TemplateEditorDialog(QDialog):
             "Двойной клик по столбцу — изменить заголовок. "
             "Правый клик — дополнительные действия."
         )
-        hint_top.setStyleSheet("color: #64748b; font-size: 12px;")
+        hint_top.setObjectName("hintLabel")
         hint_top.setWordWrap(True)
         root.addWidget(hint_top)
 
@@ -419,6 +420,7 @@ class TemplatesDialog(QDialog):
         self.setWindowTitle("Шаблоны")
         self.setMinimumSize(640, 440)
         self.setModal(True)
+        self.setStyleSheet(STYLESHEET)
         self._build_ui()
         self._refresh_list()
 
@@ -435,7 +437,7 @@ class TemplatesDialog(QDialog):
             "Шаблон определяет набор и порядок столбцов в файлах по отделам. "
             "Двойной клик по шаблону — открыть редактор."
         )
-        hint.setStyleSheet("color: #64748b; font-size: 12px;")
+        hint.setObjectName("hintLabel")
         hint.setWordWrap(True)
         root.addWidget(hint)
 

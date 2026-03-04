@@ -9,6 +9,8 @@ xls_parser.py — Парсер XLS файлов маршрутов.
 - Минимальное количество промежуточных объектов
 
 Реальная структура файла:
+- Строки 1–14: шапка (ТРЕБОВАНИЕ-НАКЛАДНАЯ, заголовки таблицы)
+- Данные с 15-й строки (0-indexed: row 14)
 - Строка маршрута: объединение col1 (clo=1, chi>2) — адрес маршрута
 - Строка продукта: объединение col2 (clo=2, chi<=5) — название продукта
 - col6 = единица измерения
@@ -24,6 +26,7 @@ xls_parser.py — Парсер XLS файлов маршрутов.
 from __future__ import annotations
 
 import re
+import itertools
 import xlrd
 from typing import Any
 
@@ -79,6 +82,22 @@ def _cell_str_cached(cache: list[list[tuple[int, Any]]], row: int, col: int) -> 
     return str(value).strip()
 
 
+def _find_footer_start_row(cache: list[list[tuple[int, Any]]], nrows: int) -> int | None:
+    """
+    Находит первую строку подвала (Итого:, Всего учетных единиц:).
+    Проверяет столбцы A и B. Возвращает индекс строки или None.
+    """
+    for r in range(nrows):
+        for col in (0, 1):
+            cell_val = _cell_str_cached(cache, r, col).strip()
+            if not cell_val:
+                continue
+            lower = cell_val.lower()
+            if "итого" in lower or "всего учетных" in lower:
+                return r
+    return None
+
+
 def parse_file(file_path: str) -> dict[str, Any]:
     """
     Парсит XLS файл и возвращает список маршрутов.
@@ -116,8 +135,26 @@ def parse_file(file_path: str) -> dict[str, Any]:
 
     route_rows.sort()
 
+    # Пропуск шапки: первые 14 строк (ТРЕБОВАНИЕ-НАКЛАДНАЯ, заголовки таблицы)
+    SKIP_HEADER_ROWS = 14
+    route_rows = [r for r in route_rows if r >= SKIP_HEADER_ROWS]
+    product_row_set = {r for r in product_row_set if r >= SKIP_HEADER_ROWS}
+
+    # Автопропуск: учитываем только диапазон данных (от первой строки маршрута до последней строки с данными)
+    if route_rows or product_row_set:
+        data_start = min(route_rows) if route_rows else min(product_row_set)
+        data_end = max(itertools.chain(route_rows, product_row_set))
+        route_rows = [r for r in route_rows if data_start <= r <= data_end]
+        product_row_set = {r for r in product_row_set if data_start <= r <= data_end}
+
     # Шаг 3: строим кэш ячеек (один проход по листу)
     cell_cache = _build_cell_cache(sheet)
+
+    # Пропуск подвала: строки с «Итого:», «Всего учетных единиц:»
+    footer_start = _find_footer_start_row(cell_cache, nrows)
+    if footer_start is not None:
+        route_rows = [r for r in route_rows if r < footer_start]
+        product_row_set = {r for r in product_row_set if r < footer_start}
 
     routes: list[dict[str, Any]] = []
     unique_products: dict[str, str] = {}  # name -> unit
