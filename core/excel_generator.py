@@ -13,6 +13,7 @@ excel_generator.py — Генератор XLS файлов маршрутов.
 """
 from __future__ import annotations
 
+import logging
 import math
 import os
 import re
@@ -20,6 +21,8 @@ from datetime import date, timedelta
 from typing import Any
 
 import xlwt
+
+log = logging.getLogger("excel_generator")
 
 ROUTE_SIGN = "\u2116"
 
@@ -311,7 +314,8 @@ def _write_label_block(ws: Any, matrix: list, nrows: int, ncols: int, start_row:
                     ws.write(start_row + r, c, val, cell_style)
                 else:
                     ws.write(start_row + r, c, str(val), cell_style)
-            except Exception:
+            except Exception as _e:
+                log.debug("_write_label_block: row=%d col=%d val=%r err=%s", start_row + r, c, val, _e)
                 ws.write(start_row + r, c, str(val), cell_style)
 
 
@@ -369,7 +373,8 @@ def generate_labels_from_templates(
         mode = _label_print_mode_for_dept(dept_key, departments_ref)
         try:
             nrows, ncols, matrix = _load_template_matrix(template_path)
-        except Exception:
+        except Exception as _e:
+            log.warning("Не удалось загрузить шаблон '%s': %s", template_path, _e)
             continue
 
         items: list[tuple[str, str, float | None]] = []

@@ -522,7 +522,7 @@ class PreviewDeptPage(QWidget):
         self.btn_generate_all.setEnabled(False)
         self.progress.setVisible(True)
 
-        self._gen_thread = QThread()
+        self._gen_thread = QThread(self)
         self._gen_worker = DeptGenerateWorker(
             self._dept_groups, file_type, chosen_dir, prod_map, templates, sort_asc
         )
@@ -574,6 +574,9 @@ class PreviewDeptPage(QWidget):
                 routes, out_dir, file_type, products_ref, departments_ref
             )
             if created:
+                set_status = self.app_state.get("set_status")
+                if callable(set_status):
+                    set_status(f"Создано этикеток: {len(created)}")
                 QMessageBox.information(self, "Готово", f"Создано файлов: {len(created)}\n\n{out_dir}")
             else:
                 QMessageBox.information(self, "Нет файлов", "Нет этикеток для создания.")

@@ -169,11 +169,21 @@ class LabelsSettingsDialog(QDialog):
             lbl.setToolTip(tpl or "Шаблон не выбран")
             btn = QPushButton("…")
             btn.setFixedWidth(32)
+            btn.setToolTip("Выбрать шаблон XLS")
             btn.clicked.connect(lambda checked=False, n=pname, l=lbl: self._on_select_template(n, l))
+            btn_clear = QPushButton("✕")
+            btn_clear.setFixedWidth(28)
+            btn_clear.setToolTip("Снять шаблон")
+            btn_clear.setObjectName("btnIconDanger")
+            btn_clear.setVisible(bool(tpl))
+            btn_clear.clicked.connect(lambda checked=False, n=pname, l=lbl, b=btn_clear: self._on_clear_template(n, l, b))
             cell = QWidget()
             cell_lay = QHBoxLayout(cell)
+            cell_lay.setContentsMargins(4, 0, 4, 0)
+            cell_lay.setSpacing(4)
             cell_lay.addWidget(lbl, 1)
             cell_lay.addWidget(btn)
+            cell_lay.addWidget(btn_clear)
             self.products_table.setCellWidget(row, 1, cell)
         self._updating = False
         self.products_table.setVisible(True)
@@ -181,11 +191,18 @@ class LabelsSettingsDialog(QDialog):
             self.lbl_no_prods.setVisible(len(products) == 0)
 
     def _on_select_template(self, product_name: str, label_widget: QLabel):
-        path, _ = QFileDialog.getOpenFileName(self, "Шаблон этикетки (XLS)", "", "Excel 97-2003 (*.xls)")
+        start_dir = os.path.dirname(label_widget.toolTip()) if label_widget.toolTip() and os.path.isfile(label_widget.toolTip()) else ""
+        path, _ = QFileDialog.getOpenFileName(self, "Шаблон этикетки (XLS)", start_dir, "Excel 97-2003 (*.xls)")
         if path:
             data_store.update_product(product_name, labelTemplatePath=path)
             label_widget.setText(os.path.basename(path))
             label_widget.setToolTip(path)
+
+    def _on_clear_template(self, product_name: str, label_widget: QLabel, btn_clear: QPushButton):
+        data_store.update_product(product_name, labelTemplatePath="")
+        label_widget.setText("—")
+        label_widget.setToolTip("Шаблон не выбран")
+        btn_clear.setVisible(False)
 
 
 def open_labels_settings_dialog(parent: QWidget):

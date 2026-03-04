@@ -32,6 +32,9 @@ from typing import Any
 
 ROUTE_SIGN = "\u2116"  # №
 
+# Количество строк шапки (ТРЕБОВАНИЕ-НАКЛАДНАЯ, заголовки таблицы)
+SKIP_HEADER_ROWS: int = 14
+
 # Компилируем regex один раз при импорте
 _RE_ROUTE_NUM = re.compile(r"(\d+)")
 _XL_EMPTY = xlrd.XL_CELL_EMPTY
@@ -84,10 +87,10 @@ def _cell_str_cached(cache: list[list[tuple[int, Any]]], row: int, col: int) -> 
 
 def _find_footer_start_row(cache: list[list[tuple[int, Any]]], nrows: int) -> int | None:
     """
-    Находит первую строку подвала (Итого:, Всего учетных единиц:).
-    Проверяет столбцы A и B. Возвращает индекс строки или None.
+    Находит первую строку подвала, сканируя с конца файла.
+    Маркеры: «итого», «всего учетных». Проверяет столбцы A и B.
     """
-    for r in range(nrows):
+    for r in range(nrows - 1, -1, -1):
         for col in (0, 1):
             cell_val = _cell_str_cached(cache, r, col).strip()
             if not cell_val:
@@ -135,8 +138,7 @@ def parse_file(file_path: str) -> dict[str, Any]:
 
     route_rows.sort()
 
-    # Пропуск шапки: первые 14 строк (ТРЕБОВАНИЕ-НАКЛАДНАЯ, заголовки таблицы)
-    SKIP_HEADER_ROWS = 14
+    # Пропуск шапки: первые SKIP_HEADER_ROWS строк (заголовки таблицы)
     route_rows = [r for r in route_rows if r >= SKIP_HEADER_ROWS]
     product_row_set = {r for r in product_row_set if r >= SKIP_HEADER_ROWS}
 

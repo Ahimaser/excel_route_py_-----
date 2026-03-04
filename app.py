@@ -195,12 +195,16 @@ def main():
         from core import data_store
         data_store.clear_last_routes()
         window.app_state.update({
-            "filePaths": [], "routes": [], "uniqueProducts": [],
-            "filteredRoutes": [], "routeCategory": "ШК",
+            "fileType": "main", "filePaths": [], "routes": [],
+            "uniqueProducts": [], "filteredRoutes": [],
+            "routeCategory": "ШК", "sortAsc": False,
         })
         home = _page_cache.get("home")
         if home and hasattr(home, "reset"):
             home.reset()
+        set_status = window.app_state.get("set_status")
+        if callable(set_status):
+            set_status("Маршруты очищены")
         navigate("dashboard")
 
     # ── Загрузка последних маршрутов и переход в превью ───────────────────
@@ -216,6 +220,10 @@ def main():
                 "Нет сохранённых маршрутов для выбранного типа. Сначала обработайте файлы."
             )
             return
+        n = len(data.get("filteredRoutes") or data.get("routes") or [])
+        set_status = window.app_state.get("set_status")
+        if callable(set_status) and n:
+            set_status(f"Загружено {n} маршрутов (последние)")
         window.app_state.update({
             "fileType":       file_type,
             "routes":         data.get("routes", []),

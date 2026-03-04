@@ -99,7 +99,7 @@ class MainWindow(QMainWindow):
         act_new.triggered.connect(self._on_new_session)
         file_menu.addAction(act_new)
         file_menu.addSeparator()
-        act_process = QAction("Обработать файлы", self)
+        act_process = QAction("Обработать файлы\tCtrl+O", self)
         act_process.triggered.connect(lambda: self.navigate_to.emit("home"))
         act_process.setShortcut(QKeySequence("Ctrl+O"))
         act_process.setToolTip("Загрузка и обработка XLS-файлов маршрутов")
@@ -147,35 +147,18 @@ class MainWindow(QMainWindow):
         act_shortcuts.setToolTip("Показать список горячих клавиш")
         act_shortcuts.triggered.connect(self._show_shortcuts_help)
         help_menu.addAction(act_shortcuts)
+        act_about = QAction("О программе", self)
+        act_about.setToolTip("Версия и информация о приложении")
+        act_about.triggered.connect(self._show_about)
+        help_menu.addAction(act_about)
 
     # ─────────────────────────── Горячие клавиши ────────────────────────
 
     def _build_shortcuts(self):
         """Регистрирует глобальные горячие клавиши.
-
-        ВАЖНО: emit() принимает только существующие имена страниц.
-        Ctrl+S, F5, Escape убраны — они отправляли несуществующие имена
-        ('generate', 'refresh', 'back') и вызывали ошибки.
+        Используем только клавиши, не дублирующиеся с QAction в меню.
         """
-        # Ctrl+O — обработка файлов
-        sc_open = QShortcut(QKeySequence("Ctrl+O"), self)
-        sc_open.activated.connect(lambda: self.navigate_to.emit("home"))
-        sc_open.setWhatsThis("Обработка файлов (загрузка XLS)")
-        # Ctrl+P — Продукты
-        sc_prod = QShortcut(QKeySequence("Ctrl+P"), self)
-        sc_prod.activated.connect(lambda: self.navigate_to.emit("products"))
-        sc_prod.setWhatsThis("Справочник продуктов")
-
-        # Ctrl+D — Отделы и продукты
-        sc_dept = QShortcut(QKeySequence("Ctrl+D"), self)
-        sc_dept.activated.connect(lambda: self.navigate_to.emit("departments"))
-        sc_dept.setWhatsThis("Открыть Отделы и продукты")
-
-        # Ctrl+T — Шаблоны
-        sc_tmpl = QShortcut(QKeySequence("Ctrl+T"), self)
-        sc_tmpl.activated.connect(lambda: self.navigate_to.emit("templates"))
-        sc_tmpl.setWhatsThis("Открыть Шаблоны")
-        # Ctrl+L — Этикетки
+        # Ctrl+L — Этикетки (нет в меню с шорткатом)
         sc_labels = QShortcut(QKeySequence("Ctrl+L"), self)
         sc_labels.activated.connect(lambda: self.navigate_to.emit("labels"))
         sc_labels.setWhatsThis("Открыть Этикетки")
