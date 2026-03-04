@@ -61,6 +61,12 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         root_layout.addWidget(self.stack)
 
+        # Статусная строка
+        self.statusBar().showMessage("Готов")
+
+        # Колбэк для вывода сообщений в статус (страницы вызывают app_state["set_status"](msg))
+        self.app_state["set_status"] = lambda msg, t=5000: self.statusBar().showMessage(msg, t)
+
     def _make_header(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("headerBar")
@@ -169,6 +175,10 @@ class MainWindow(QMainWindow):
         sc_tmpl = QShortcut(QKeySequence("Ctrl+T"), self)
         sc_tmpl.activated.connect(lambda: self.navigate_to.emit("templates"))
         sc_tmpl.setWhatsThis("Открыть Шаблоны")
+        # Ctrl+L — Этикетки
+        sc_labels = QShortcut(QKeySequence("Ctrl+L"), self)
+        sc_labels.activated.connect(lambda: self.navigate_to.emit("labels"))
+        sc_labels.setWhatsThis("Открыть Этикетки")
 
     def _show_shortcuts_help(self):
         from PyQt6.QtWidgets import QMessageBox
@@ -176,10 +186,28 @@ class MainWindow(QMainWindow):
             self, "Горячие клавиши",
             "Горячие клавиши приложения:\n\n"
             "  Ctrl+O    —  Обработка файлов (загрузка XLS)\n"
+            "  Ctrl+L    —  Этикетки\n"
             "  Ctrl+D    —  Отделы и продукты\n"
             "  Ctrl+T    —  Шаблоны\n"
-            "  Ctrl+P    —  Продукты\n\n"
+            "  Ctrl+P    —  Продукты\n"
+            "  Ctrl+F    —  Фокус на поиск (в предпросмотре и настройках)\n\n"
             "  Escape    —  Закрыть модальное окно или панель редактирования"
+        )
+
+    def _show_about(self):
+        from PyQt6.QtWidgets import QMessageBox
+        try:
+            from version import VERSION
+        except ImportError:
+            VERSION = "?"
+        from core.data_store import get_app_data_dir
+        data_dir = str(get_app_data_dir())
+        QMessageBox.about(
+            self, "О программе",
+            f"<h3>Маршруты, Сборка</h3>"
+            f"<p>Версия {VERSION}</p>"
+            f"<p>Обработка маршрутных XLS файлов, генерация отчётов и этикеток.</p>"
+            f"<p><small>Данные: {data_dir}</small></p>"
         )
 
     # ─────────────────────────── Навигация ────────────────────────────────────

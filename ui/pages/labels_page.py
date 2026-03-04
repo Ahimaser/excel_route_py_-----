@@ -143,6 +143,8 @@ class LabelsPage(QWidget):
                 routes, out_dir, file_type, products_ref, departments_ref
             )
             if created:
+                if hasattr(self.app_state.get("set_status"), "__call__"):
+                    self.app_state["set_status"](f"Создано этикеток: {len(created)}")
                 QMessageBox.information(self, "Готово", f"Создано файлов: {len(created)}\n\n{out_dir}")
             else:
                 QMessageBox.information(self, "Нет файлов", "Нет этикеток для создания.")

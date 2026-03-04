@@ -426,6 +426,9 @@ class HomePage(QWidget):
         first_cat = routes[0].get("routeCategory", "ШК") if routes else "ШК"
         self.app_state["routeCategory"] = first_cat
 
+        if routes and hasattr(self.app_state.get("set_status"), "__call__"):
+            self.app_state["set_status"](f"Загружено {len(routes)} маршрутов")
+
         data_store.save_last_routes(
             self.app_state.get("fileType", "main"),
             routes,

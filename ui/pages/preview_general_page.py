@@ -1076,6 +1076,8 @@ class PreviewGeneralPage(QWidget):
     def _on_gen_done(self, path: str) -> None:
         self.progress.setVisible(False)
         self.btn_generate.setEnabled(True)
+        if hasattr(self.app_state.get("set_status"), "__call__"):
+            self.app_state["set_status"](f"Файл сохранён: {path}")
         file_type = self.app_state.get("fileType", "main")
         data_store.save_last_routes(
             file_type,

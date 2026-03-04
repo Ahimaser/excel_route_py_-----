@@ -531,6 +531,15 @@ QFrame#separator {{
     max-height: 1px;
 }}
 
+/* ─── Статусная строка ─── */
+QStatusBar {{
+    font-size: 12px;
+    color: {_TEXT_MUTED};
+    padding: 6px 16px;
+    background: #f8fafc;
+    border-top: 1px solid {_BORDER_LIGHT};
+}}
+
 /* ─── ScrollArea ─── */
 QScrollArea {{
     border: none;
