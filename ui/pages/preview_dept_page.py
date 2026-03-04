@@ -71,8 +71,8 @@ class PreviewDeptPage(QWidget):
 
     def _build_ui(self):
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(24, 16, 24, 16)
-        lay.setSpacing(12)
+        lay.setContentsMargins(28, 20, 28, 20)
+        lay.setSpacing(16)
 
         h_row = QHBoxLayout()
         btn_back = QPushButton("← Назад")

@@ -41,8 +41,8 @@ class LabelsPage(QWidget):
         outer.addWidget(scroll)
 
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(40, 32, 40, 32)
-        lay.setSpacing(24)
+        lay.setContentsMargins(48, 40, 48, 40)
+        lay.setSpacing(28)
 
         h = QHBoxLayout()
         btn_back = QPushButton("← Назад")

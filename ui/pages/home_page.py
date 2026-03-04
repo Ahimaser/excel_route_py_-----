@@ -130,8 +130,8 @@ class HomePage(QWidget):
         outer.addWidget(scroll)
 
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(40, 32, 40, 32)
-        lay.setSpacing(24)
+        lay.setContentsMargins(48, 40, 48, 40)
+        lay.setSpacing(28)
 
         lbl_h = QLabel("Обработка файлов")
         lbl_h.setObjectName("sectionTitle")
@@ -166,8 +166,8 @@ class HomePage(QWidget):
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(20, 16, 20, 16)
-        lay.setSpacing(12)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(14)
 
         h_row = QHBoxLayout()
         badge = QLabel(num)

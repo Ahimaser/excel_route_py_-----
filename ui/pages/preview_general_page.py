@@ -138,8 +138,8 @@ class RoutesTableModel(QAbstractTableModel):
 
         elif role == Qt.ItemDataRole.SizeHintRole:
             from PyQt6.QtCore import QSize
-            base = max(28, self._font_size + 14)
-            return QSize(-1, base + 8 if is_route else base)
+            base = max(32, self._font_size + 16)
+            return QSize(-1, base + 10 if is_route else base + 4)
 
         return QVariant()
 
@@ -482,8 +482,8 @@ class PreviewGeneralPage(QWidget):
 
     def _build_ui(self) -> None:
         root_lay = QVBoxLayout(self)
-        root_lay.setContentsMargins(24, 16, 24, 16)
-        root_lay.setSpacing(12)
+        root_lay.setContentsMargins(28, 20, 28, 20)
+        root_lay.setSpacing(16)
 
         # Заголовок
         h_row = QHBoxLayout()
@@ -524,7 +524,7 @@ class PreviewGeneralPage(QWidget):
         filter_card = QFrame()
         filter_card.setObjectName("card")
         filter_lay = QHBoxLayout(filter_card)
-        filter_lay.setContentsMargins(12, 10, 12, 10)
+        filter_lay.setContentsMargins(16, 14, 16, 14)
         filter_lay.setSpacing(12)
 
         self.le_search = QLineEdit()
@@ -582,6 +582,7 @@ class PreviewGeneralPage(QWidget):
         # QTableView с виртуальной моделью
         self._model = RoutesTableModel(self)
         self.table = QTableView()
+        self.table.setObjectName("routesTable")
         self.table.setModel(self._model)
         hdr = self.table.horizontalHeader()
         hdr.setMinimumSectionSize(90)

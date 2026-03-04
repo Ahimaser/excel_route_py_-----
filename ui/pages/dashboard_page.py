@@ -26,8 +26,8 @@ class DashboardPage(QWidget):
 
     def _build_ui(self):
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(40, 32, 40, 32)
-        lay.setSpacing(24)
+        lay.setContentsMargins(48, 40, 48, 40)
+        lay.setSpacing(28)
 
         title = QLabel("Маршруты, Сборка")
         title.setObjectName("sectionTitle")
