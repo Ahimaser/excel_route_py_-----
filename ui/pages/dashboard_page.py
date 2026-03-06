@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QMessageBox, QGridLayout,
+    QFrame, QMessageBox, QGridLayout, QScrollArea,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -29,14 +29,24 @@ class DashboardPage(QWidget):
     # ─────────────────────────── UI ───────────────────────────────────
 
     def _build_ui(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        content = QWidget()
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(48, 40, 48, 40)
-        lay.setSpacing(32)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(scroll)
+        inner = QVBoxLayout(content)
+        inner.setContentsMargins(48, 40, 48, 40)
+        inner.setSpacing(32)
+        scroll.setWidget(content)
 
         # Заголовок
         title = QLabel("Маршруты, Сборка")
         title.setObjectName("sectionTitle")
-        lay.addWidget(title)
+        inner.addWidget(title)
 
         hint = QLabel(
             "Обработайте XLS-файлы с маршрутами или откройте последние сохранённые данные. "
@@ -44,7 +54,7 @@ class DashboardPage(QWidget):
         )
         hint.setObjectName("stepLabel")
         hint.setWordWrap(True)
-        lay.addWidget(hint)
+        inner.addWidget(hint)
 
         # Сетка карточек 2×2
         grid = QGridLayout()
@@ -78,20 +88,18 @@ class DashboardPage(QWidget):
         )
         grid.addWidget(self._card_labels, 1, 1)
 
-        lay.addLayout(grid)
+        inner.addLayout(grid)
 
         # Кнопка очистки внизу
         clear_row = QHBoxLayout()
         btn_clear = QPushButton("Очистить последние данные")
         btn_clear.setObjectName("btnDanger")
-        btn_clear.setFixedHeight(40)
-        btn_clear.setToolTip("Удалить сохранённые маршруты (если загружен неправильный файл)")
         btn_clear.clicked.connect(self._on_clear_last)
         clear_row.addStretch()
         clear_row.addWidget(btn_clear)
-        lay.addLayout(clear_row)
+        inner.addLayout(clear_row)
 
-        lay.addStretch()
+        inner.addStretch()
 
     def _make_card(self, icon: str, title: str, desc: str,
                    btn_style: str, on_click) -> QFrame:
@@ -110,6 +118,7 @@ class DashboardPage(QWidget):
 
         lbl_title = QLabel(title)
         lbl_title.setObjectName("cardTitle")
+        lbl_title.setWordWrap(True)
         card_lay.addWidget(lbl_title)
 
         lbl_desc = QLabel(desc)
@@ -131,7 +140,7 @@ class DashboardPage(QWidget):
     # ─────────────────────────── Обновление ───────────────────────────
 
     def refresh(self):
-        """Обновляет подсказки карточек «Последние» по состоянию хранилища."""
+        """Обновляет подсказки и доступность карточек «Последние» по состоянию хранилища."""
         main_data = data_store.get_last_routes("main")
         inc_data  = data_store.get_last_routes("increase")
 
@@ -140,16 +149,30 @@ class DashboardPage(QWidget):
             ts = (main_data.get("timestamp") or "")[:10]
             tip = f"Маршрутов: {n}" + (f" | {ts}" if ts else "")
             self._card_last_main.setToolTip(tip)
+            for w in self._card_last_main.findChildren(QPushButton):
+                w.setEnabled(True)
+                w.setToolTip(tip)
+                break
         else:
-            self._card_last_main.setToolTip("Нет сохранённых данных")
+            self._card_last_main.setToolTip("Нет сохранённых маршрутов. Сначала обработайте файлы.")
+            for w in self._card_last_main.findChildren(QPushButton):
+                w.setEnabled(False)
+                break
 
         if inc_data:
             n = len(inc_data.get("filteredRoutes") or inc_data.get("routes") or [])
             ts = (inc_data.get("timestamp") or "")[:10]
             tip = f"Маршрутов: {n}" + (f" | {ts}" if ts else "")
             self._card_last_inc.setToolTip(tip)
+            for w in self._card_last_inc.findChildren(QPushButton):
+                w.setEnabled(True)
+                w.setToolTip(tip)
+                break
         else:
-            self._card_last_inc.setToolTip("Нет сохранённых данных")
+            self._card_last_inc.setToolTip("Нет сохранённых маршрутов. Сначала обработайте файлы.")
+            for w in self._card_last_inc.findChildren(QPushButton):
+                w.setEnabled(False)
+                break
 
     def _on_clear_last(self):
         reply = QMessageBox.question(

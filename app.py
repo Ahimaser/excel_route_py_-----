@@ -84,8 +84,64 @@ PAGE_TITLES = {
     "preview_dept":    "Предпросмотр — По отделам",
 }
 
+# Краткие подсказки (при наведении на «!»)
+PAGE_HINTS_SHORT = {
+    "dashboard": "Главная: обработка файлов, последние маршруты, этикетки.",
+    "home": "Загрузка XLS, выбор папки, обработка.",
+    "labels": "Этикетки по шаблонам продуктов.",
+    "preview_general": "Таблица маршрутов, поиск, фильтр, создание файла.",
+    "preview_dept": "Маршруты по отделам, фильтр, генерация файлов.",
+}
+
+# Подробные инструкции по пунктам (при нажатии на «!»)
+PAGE_HINTS_LONG = {
+    "dashboard": (
+        "Инструкция — Главная страница\n\n"
+        "1. «Обработать файлы» — переход к загрузке XLS-файлов маршрутов (ШК и/или СД).\n"
+        "2. «Последние (основной)» — открыть последние сохранённые маршруты основного типа.\n"
+        "3. «Последние (довоз)» — открыть последние сохранённые маршруты довоза.\n"
+        "4. «Этикетки» — переход к созданию этикеток XLS по шаблонам.\n"
+        "5. «Очистить» — удалить сохранённые «последние» маршруты из памяти."
+    ),
+    "home": (
+        "Инструкция — Обработка файлов\n\n"
+        "1. Выберите тип файла: основной или довоз (увеличение).\n"
+        "2. Укажите папку сохранения результатов.\n"
+        "3. Перетащите XLS-файлы в зону загрузки или нажмите «Выбрать файлы».\n"
+        "4. При необходимости измените категорию маршрутов (ШК/СД) для округления.\n"
+        "5. Нажмите «Обработать» — после обработки откроется предпросмотр."
+    ),
+    "labels": (
+        "Инструкция — Этикетки\n\n"
+        "1. Убедитесь, что маршруты загружены (обработайте файлы или откройте последние).\n"
+        "2. Выберите продукт в списке и нажмите «Загрузить шаблон» — укажите XLS-шаблон для этого продукта.\n"
+        "3. Либо откройте «Настройки этикеток» и задайте шаблон для продуктов по отделам.\n"
+        "4. Нажмите «Создать XLS по шаблонам» — файлы сохранятся в папку «Этикетки на ДД.ММ.ГГГГ»."
+    ),
+    "preview_general": (
+        "Инструкция — Предпросмотр (общие маршруты)\n\n"
+        "1. Поиск: введите текст в поле поиска или нажмите Ctrl+F.\n"
+        "2. Фильтр по продукту: выберите продукт в выпадающем списке.\n"
+        "3. Двойной клик по номеру маршрута — изменить номер.\n"
+        "4. Правый клик по строке — исключить маршрут из выгрузки или удалить.\n"
+        "5. Ctrl+колёсико мыши над таблицей — изменить размер шрифта.\n"
+        "6. «Создать файл» — сформировать Excel «Общие маршруты».\n"
+        "7. «Этикетки» — создать этикетки по шаблонам.\n"
+        "8. «Справочник продуктов» — настройки продуктов и кол-во в шт (ПКМ по продукту)."
+    ),
+    "preview_dept": (
+        "Инструкция — Маршруты по отделам\n\n"
+        "1. В фильтре «Показать отдел/подотдел» выберите нужный отдел или «Все отделы».\n"
+        "2. Вкладки — по одной на каждый отдел/подотдел с таблицей маршрутов.\n"
+        "3. Ctrl+колёсико мыши над таблицей — изменить размер шрифта.\n"
+        "4. «Сгенерировать все» — создать Excel-файлы по отделам в выбранную папку.\n"
+        "5. «Этикетки» — создать этикетки в папку «Этикетки на ДД.ММ.ГГГГ».\n"
+        "6. «Отделы и продукты» — открыть настройку привязки продуктов к отделам."
+    ),
+}
+
 # Справочники — открываются как модальные диалоги (не добавляются в стек)
-MODAL_REFS = {"departments", "products", "templates", "settings"}
+MODAL_REFS = {"departments", "products", "templates"}
 
 
 def main():
@@ -151,31 +207,11 @@ def main():
         except Exception:
             log.critical("Ошибка при открытии templates:\n%s", traceback.format_exc())
 
-    def _open_settings():
-        """Открывает модальный диалог «Настройки Шт»."""
-        log.debug("Открываем диалог: settings")
-        try:
-            from ui.pages.settings_dialog import open_settings_dialog
-
-            def _on_saved():
-                log.debug("settings: on_saved — обновляем превью-страницы")
-                pg = _page_cache.get("preview_general")
-                if pg is not None and hasattr(pg, "_render_table"):
-                    pg._render_table()
-                pd = _page_cache.get("preview_dept")
-                if pd is not None and hasattr(pd, "refresh"):
-                    pd.refresh()
-
-            open_settings_dialog(window, on_saved=_on_saved)
-        except Exception:
-            log.critical("Ошибка при открытии settings:\n%s", traceback.format_exc())
-
     # Словарь: имя → функция открытия модального диалога
     _modal_openers = {
         "departments": _open_departments,
         "products":    _open_products,
         "templates":   _open_templates,
-        "settings":    _open_settings,
     }
 
     # ── Очистка маршрутов ───────────────────────────────────────────────────
@@ -210,7 +246,9 @@ def main():
     # ── Загрузка последних маршрутов и переход в превью ───────────────────
 
     def _load_last_and_go_preview(file_type: str):
-        """Загружает последние маршруты (main/increase) в app_state и переходит в preview_general."""
+        """Загружает последние маршруты (main/increase) в app_state и переходит в preview_general.
+        Данные копируются, чтобы исключения маршрутов в превью не мутировали хранилище до следующего сохранения."""
+        import copy
         from core import data_store
         data = data_store.get_last_routes(file_type)
         if not data:
@@ -220,15 +258,18 @@ def main():
                 "Нет сохранённых маршрутов для выбранного типа. Сначала обработайте файлы."
             )
             return
-        n = len(data.get("filteredRoutes") or data.get("routes") or [])
+        routes = copy.deepcopy(data.get("routes") or [])
+        unique_products = copy.deepcopy(data.get("uniqueProducts") or [])
+        filtered = copy.deepcopy(data.get("filteredRoutes") or data.get("routes") or [])
+        n = len(filtered)
         set_status = window.app_state.get("set_status")
         if callable(set_status) and n:
             set_status(f"Загружено {n} маршрутов (последние)")
         window.app_state.update({
             "fileType":       file_type,
-            "routes":         data.get("routes", []),
-            "uniqueProducts": data.get("uniqueProducts", []),
-            "filteredRoutes": data.get("filteredRoutes", []),
+            "routes":         routes,
+            "uniqueProducts": unique_products,
+            "filteredRoutes": filtered,
             "routeCategory":  data.get("routeCategory") or "ШК",
         })
         navigate("preview_general")
@@ -267,14 +308,16 @@ def main():
                 from ui.pages.preview_general_page import PreviewGeneralPage
                 page = PreviewGeneralPage(window.app_state)
                 page.go_back.connect(lambda: navigate("home"))
+                page.go_home.connect(lambda: navigate("dashboard"))
                 page.go_dept_preview.connect(lambda: navigate("preview_dept"))
-                page.go_settings.connect(_open_settings)
+                page.go_settings.connect(_open_products)
                 page.go_clear_routes.connect(_clear_routes_and_go_dashboard)
 
             elif name == "preview_dept":
                 from ui.pages.preview_dept_page import PreviewDeptPage
                 page = PreviewDeptPage(window.app_state)
                 page.go_back.connect(lambda: navigate("preview_general"))
+                page.go_home.connect(lambda: navigate("dashboard"))
                 page.go_clear_routes.connect(_clear_routes_and_go_dashboard)
 
             else:
@@ -314,7 +357,12 @@ def main():
                 return
             idx = _page_idx[page_name]
             stack.setCurrentIndex(idx)
+            window.set_ribbon_page(page_name)
             window.set_page_title(PAGE_TITLES.get(page_name, ""))
+            window.set_page_hint(
+                PAGE_HINTS_SHORT.get(page_name, ""),
+                PAGE_HINTS_LONG.get(page_name, ""),
+            )
             if hasattr(page, "refresh"):
                 page.refresh()
         except Exception:

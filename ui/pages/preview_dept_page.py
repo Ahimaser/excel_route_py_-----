@@ -16,13 +16,14 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QMessageBox, QFileDialog, QComboBox,
-    QProgressBar, QTabWidget, QApplication
+    QProgressBar, QTabWidget, QApplication, QScrollArea,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, QEvent
 from PyQt6.QtGui import QFont, QBrush, QColor, QWheelEvent
 
 from core import data_store, excel_generator
 from ui.pages import departments_page as dept_mod
+from ui.widgets import make_combo_searchable
 
 
 # ─────────────────────────── Worker ───────────────────────────────────────
@@ -55,10 +56,15 @@ class DeptGenerateWorker(QObject):
 
 # ─────────────────────────── Страница ─────────────────────────────────────
 
+_DISPLAY_ADDR_ONLY = "addr"
+_DISPLAY_FULL = "full"
+
+
 class PreviewDeptPage(QWidget):
     """Предпросмотр и генерация файлов по отделам."""
 
     go_back = pyqtSignal()
+    go_home = pyqtSignal()  # Переход на главную (dashboard)
     go_clear_routes = pyqtSignal()
 
     def __init__(self, app_state: dict):
@@ -67,19 +73,33 @@ class PreviewDeptPage(QWidget):
         self._dept_groups: list[dict] = []
         self._table_font_size = 13
         self._dept_tables: list[QTableWidget] = []
+        self._display_mode = _DISPLAY_ADDR_ONLY  # по умолчанию только № маршрута и адрес
         self._build_ui()
 
     def _build_ui(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        content = QWidget()
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(28, 20, 28, 20)
-        lay.setSpacing(16)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(scroll)
+        scroll.setWidget(content)
+        inner = QVBoxLayout(content)
+        inner.setContentsMargins(28, 20, 28, 20)
+        inner.setSpacing(16)
 
         h_row = QHBoxLayout()
         btn_back = QPushButton("← Назад")
         btn_back.setObjectName("btnBack")
-        btn_back.setToolTip("Вернуться на страницу «Общие маршруты» (Escape)")
         btn_back.clicked.connect(self.go_back.emit)
         h_row.addWidget(btn_back)
+        btn_home = QPushButton("На главную")
+        btn_home.setObjectName("btnSecondary")
+        btn_home.clicked.connect(self.go_home.emit)
+        h_row.addWidget(btn_home)
 
         self.lbl_title = QLabel("Маршруты по отделам")
         self.lbl_title.setObjectName("sectionTitle")
@@ -87,62 +107,58 @@ class PreviewDeptPage(QWidget):
         h_row.addStretch()
         self.lbl_font_size = QLabel("Размер текста: 13")
         self.lbl_font_size.setObjectName("badge")
-        self.lbl_font_size.setToolTip("Ctrl + колёсико мыши над таблицей — изменить")
         h_row.addWidget(self.lbl_font_size)
-        lay.addLayout(h_row)
+        inner.addLayout(h_row)
 
-        # Фильтр по отделу/подотделу
+        # Фильтр по отделу и режим отображения
         filter_row = QHBoxLayout()
         lbl_filter = QLabel("Показать отдел/подотдел:")
-        lbl_filter.setToolTip("Выберите конкретный отдел или подотдел для предпросмотра")
         filter_row.addWidget(lbl_filter)
         self.combo_dept_filter = QComboBox()
-        self.combo_dept_filter.setToolTip(
-            "Выберите отдел или подотдел для предпросмотра.\n"
-            "«Все отделы» — показать все вкладки."
-        )
         self.combo_dept_filter.setMinimumWidth(220)
         self.combo_dept_filter.currentIndexChanged.connect(self._on_filter_changed)
         filter_row.addWidget(self.combo_dept_filter)
+        filter_row.addSpacing(16)
+        filter_row.addWidget(QLabel("Показать:"))
+        self.combo_display = QComboBox()
+        self.combo_display.setMinimumWidth(140)
+        self.combo_display.addItem("Только № и адрес", _DISPLAY_ADDR_ONLY)
+        self.combo_display.addItem("Полностью", _DISPLAY_FULL)
+        self.combo_display.setCurrentIndex(0)
+        make_combo_searchable(self.combo_dept_filter)
+        make_combo_searchable(self.combo_display)
+        self.combo_display.currentIndexChanged.connect(self._on_display_changed)
+        filter_row.addWidget(self.combo_display)
         filter_row.addStretch()
-        lay.addLayout(filter_row)
+        inner.addLayout(filter_row)
 
         self.tabs = QTabWidget()
-        self.tabs.setToolTip("Вкладки с маршрутами по каждому отделу/подотделу")
-        lay.addWidget(self.tabs)
+        inner.addWidget(self.tabs)
 
         bottom_row = QHBoxLayout()
         bottom_row.addStretch()
 
         self.btn_generate_all = QPushButton("Создать файлы для всех отделов")
         self.btn_generate_all.setObjectName("btnPrimary")
-        self.btn_generate_all.setFixedHeight(40)
-        self.btn_generate_all.setToolTip(
-            "Сгенерировать Excel-файлы для всех отделов и сохранить в выбранную папку"
-        )
         self.btn_generate_all.clicked.connect(self._on_generate_all)
         bottom_row.addWidget(self.btn_generate_all)
 
         self.btn_labels = QPushButton("Этикетки из шаблонов (XLS)")
         self.btn_labels.setObjectName("btnSecondary")
-        self.btn_labels.setFixedHeight(40)
-        self.btn_labels.setToolTip("Создать этикетки в папку «Этикетки на ДД.ММ.ГГГГ» (завтра)")
         self.btn_labels.clicked.connect(self._on_labels_from_templates)
         bottom_row.addWidget(self.btn_labels)
 
         self.btn_clear = QPushButton("Очистить маршруты")
         self.btn_clear.setObjectName("btnDanger")
-        self.btn_clear.setFixedHeight(40)
-        self.btn_clear.setToolTip("Удалить загруженные данные (если загружен неправильный файл)")
         self.btn_clear.clicked.connect(self._on_clear_routes)
         bottom_row.addWidget(self.btn_clear)
 
-        lay.addLayout(bottom_row)
+        inner.addLayout(bottom_row)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.setVisible(False)
-        lay.addWidget(self.progress)
+        inner.addWidget(self.progress)
 
     # ─────────────────────────── Проверка отделов ────────────────────────
 
@@ -326,11 +342,9 @@ class PreviewDeptPage(QWidget):
         btn_row.setSpacing(12)
         btn_open = QPushButton("Открыть Отделы и продукты")
         btn_open.setObjectName("btnPrimary")
-        btn_open.setToolTip("Открыть окно привязки продуктов к отделам")
         btn_open.clicked.connect(lambda: self._open_depts_and_retry())
         btn_retry = QPushButton("Проверить снова")
         btn_retry.setObjectName("btnSecondary")
-        btn_retry.setToolTip("Повторно проверить привязку после изменений в «Отделы и продукты»")
         btn_retry.clicked.connect(self.refresh)
         btn_row.addWidget(btn_open, alignment=Qt.AlignmentFlag.AlignCenter)
         btn_row.addWidget(btn_retry, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -352,21 +366,21 @@ class PreviewDeptPage(QWidget):
         lay.addWidget(lbl)
 
         table = QTableWidget()
-        table.setColumnCount(4)
-        table.setHorizontalHeaderLabels(["№ маршрута", "Адрес / Продукт", "Ед. изм.", "Кол-во"])
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(["№ маршрута", "Адрес / Продукт", "Ед. изм.", "Кол-во", "Шт"])
         hdr = table.horizontalHeader()
         hdr.setMinimumSectionSize(90)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.verticalHeader().setVisible(False)
         table.setAlternatingRowColors(True)
         table.setFont(QFont("", self._table_font_size))
         table.installEventFilter(self)
-        table.setToolTip("Ctrl + колёсико мыши — изменить размер текста")
         self._dept_tables.append(table)
         lay.addWidget(table)
 
@@ -398,21 +412,27 @@ class PreviewDeptPage(QWidget):
                 return True
         return super().eventFilter(obj, event)
 
+    def _on_display_changed(self):
+        self._display_mode = self.combo_display.currentData() or _DISPLAY_ADDR_ONLY
+        prod_map = data_store.get_products_map()
+        for i, tbl in enumerate(self._dept_tables):
+            if i < len(self._dept_groups):
+                self._fill_dept_table(tbl, self._dept_groups[i]["routes"], prod_map)
+
     def _fill_dept_table(self, table: QTableWidget, routes: list, prod_map: dict):
         """
         Заполняет таблицу данными отдела (batch-рендер).
-
-        Структура строк:
-          - Строка маршрута: [№ маршрута] [Адрес] [] []
-          - Строки продуктов: [] [  Название продукта] [Ед. изм.] [Кол-во]
-        Всегда отдельная строка маршрута + отдельные строки продуктов.
+        При режиме «Только № и адрес» — только строки маршрутов; иначе — маршрут + продукты.
         """
         sort_asc = self.app_state.get("sortAsc", False)
         from core.excel_generator import _sort_routes
         routes_sorted = _sort_routes(routes, sort_asc)
+        only_addr = self._display_mode == _DISPLAY_ADDR_ONLY
 
-        # Считаем строки заранее: 1 строка маршрута + N строк продуктов
-        total_rows = sum(1 + len(r.get("products", [])) for r in routes_sorted)
+        if only_addr:
+            total_rows = len(routes_sorted)
+        else:
+            total_rows = sum(1 + len(r.get("products", [])) for r in routes_sorted)
 
         table.setUpdatesEnabled(False)
         table.setRowCount(total_rows)
@@ -423,13 +443,20 @@ class PreviewDeptPage(QWidget):
         gray_bg   = QBrush(QColor("#f8fafc"))
         FLAG_NO_EDIT = ~Qt.ItemFlag.ItemIsEditable
 
-        def _make_item(text: str, bold: bool = False, bg: QBrush | None = None) -> QTableWidgetItem:
+        def _make_item(
+            text: str,
+            bold: bool = False,
+            bg: QBrush | None = None,
+            align_right: bool = False,
+        ) -> QTableWidgetItem:
             item = QTableWidgetItem(text)
             item.setFlags(item.flags() & FLAG_NO_EDIT)
             if bold:
                 item.setFont(bold_font)
             if bg is not None:
                 item.setBackground(bg)
+            if align_right:
+                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             return item
 
         current_row = 0
@@ -438,34 +465,81 @@ class PreviewDeptPage(QWidget):
             route_num = str(route.get("routeNum", ""))
             address   = route.get("address", "")
 
-            # Строка маршрута: номер | адрес | пусто | пусто
+            # Строка маршрута: номер | адрес | пусто | пусто | пусто
             table.setItem(current_row, 0, _make_item(route_num, bold=True))
             table.setItem(current_row, 1, _make_item(address,   bold=True, bg=gray_bg))
             table.setItem(current_row, 2, _make_item(""))
             table.setItem(current_row, 3, _make_item(""))
+            table.setItem(current_row, 4, _make_item(""))
             current_row += 1
 
-            # Строки продуктов: пусто | название | ед.изм. | кол-во
-            for prod in products:
-                table.setItem(current_row, 0, _make_item(""))
-                table.setItem(current_row, 1, _make_item(f"  {prod.get('name', '')}"))
-                table.setItem(current_row, 2, _make_item(prod.get("unit", "")))
-                qty_str = self._fmt_qty(prod, prod_map)
-                table.setItem(current_row, 3, _make_item(qty_str))
-                current_row += 1
+            if not only_addr:
+                # Строки продуктов: пусто | название | ед.изм. | кол-во | шт
+                for prod in products:
+                    table.setItem(current_row, 0, _make_item(""))
+                    table.setItem(current_row, 1, _make_item(f"  {prod.get('name', '')}"))
+                    table.setItem(current_row, 2, _make_item(prod.get("unit", "")))
+                    qty_str = self._fmt_qty(prod, prod_map)
+                    pcs_str = self._fmt_pcs(prod, prod_map, route)
+                    table.setItem(current_row, 3, _make_item(qty_str, align_right=True))
+                    table.setItem(current_row, 4, _make_item(pcs_str, align_right=True))
+                    current_row += 1
 
         table.setUpdatesEnabled(True)
         table.resizeColumnsToContents()
 
     def _fmt_qty(self, prod: dict, prod_map: dict) -> str:
+        """Кол-во в единицах измерения (с учётом множителя замены)."""
         qty = prod.get("quantity")
         if qty is None:
             return ""
         ps = prod_map.get(prod.get("name", ""), {})
-        if ps.get("showPcs") and ps.get("pcsPerUnit", 0) > 0:
-            pcs = excel_generator.calc_pcs(qty, ps["pcsPerUnit"], ps.get("roundUp", True))
-            return f"{qty} / {pcs} шт"
-        return str(qty)
+        mult = float(ps.get("quantityMultiplier", 1.0) or 1.0)
+        try:
+            display_qty = float(qty) * mult
+        except (ValueError, TypeError):
+            display_qty = qty
+        if isinstance(display_qty, float) and display_qty == int(display_qty):
+            return str(int(display_qty))
+        return str(display_qty)
+
+    def _fmt_pcs(self, prod: dict, prod_map: dict, route: dict) -> str:
+        """
+        Значение для колонки «Шт»: рассчитанные шт (по настройкам продукта и категории маршрута)
+        или количество для продуктов с ед. изм. «шт». Иначе «—».
+        """
+        qty = prod.get("quantity")
+        if qty is None:
+            return "—"
+        unit = (prod.get("unit") or "").strip().lower()
+        ps = prod_map.get(prod.get("name", ""), {})
+
+        if unit == "шт":
+            try:
+                v = float(qty)
+                return str(int(v)) if v == int(v) else str(v)
+            except (ValueError, TypeError):
+                return str(qty)
+
+        mult = float(ps.get("quantityMultiplier", 1.0) or 1.0)
+        try:
+            display_qty = float(qty) * mult
+        except (ValueError, TypeError):
+            display_qty = qty
+
+        if not ps.get("showPcs") or not (ps.get("pcsPerUnit") or 0) > 0:
+            return "—"
+
+        route_cat = route.get("routeCategory") or "ШК"
+        round_up = (
+            ps.get("roundUpСД") if "roundUpСД" in ps else ps.get("roundUp", True)
+            if route_cat == "СД"
+            else ps.get("roundUpШК") if "roundUpШК" in ps else ps.get("roundUp", True)
+        )
+        pcs = excel_generator.calc_pcs(
+            display_qty, float(ps.get("pcsPerUnit", 1)), bool(round_up)
+        )
+        return str(pcs)
 
     # ─────────────────────────── Генерация ────────────────────────────────
 

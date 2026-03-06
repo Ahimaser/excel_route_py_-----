@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 
 from core import data_store
+from ui.widgets import make_combo_searchable
 
 
 class SettingsPage(QWidget):
@@ -44,7 +45,6 @@ class SettingsPage(QWidget):
         h_row = QHBoxLayout()
         btn_back = QPushButton("← Назад")
         btn_back.setObjectName("btnBack")
-        btn_back.setToolTip("Вернуться на главную страницу (Escape)")
         btn_back.clicked.connect(self.go_back.emit)
         h_row.addWidget(btn_back)
 
@@ -68,7 +68,6 @@ class SettingsPage(QWidget):
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Начните вводить название продукта...")
         self.search_edit.setClearButtonEnabled(True)
-        self.search_edit.setToolTip("Фильтрация продуктов по названию. Результат обновляется автоматически.")
         self.search_edit.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self.search_edit)
         lay.addLayout(search_row)
@@ -78,12 +77,6 @@ class SettingsPage(QWidget):
         self.table.setHorizontalHeaderLabels([
             "Продукт", "Ед. изм.", "Показывать Шт", "Кол-во в 1 шт", "Округление"
         ])
-        self.table.setToolTip(
-            "Таблица настроек для каждого продукта.\n"
-            "Показывать Шт — добавлять количество в штуках после основного значения.\n"
-            "Кол-во в 1 шт — коэффициент перевода из ед. изм. в штуки.\n"
-            "Округление — как округлять количество штук."
-        )
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -114,7 +107,7 @@ class SettingsPage(QWidget):
 
     def _load_table(self):
         # Читаем данные один раз
-        products = data_store.get("products") or []
+        products = data_store.get_ref("products") or []
         eligible = sorted(
             [p for p in products if p.get("unit", "").lower() != "шт"],
             key=lambda p: p["name"].lower()
@@ -164,6 +157,7 @@ class SettingsPage(QWidget):
             combo.addItem("В меньшую сторону", False)
             combo.setCurrentIndex(0 if prod.get("roundUp", True) else 1)
             combo.setEnabled(show_pcs)
+            make_combo_searchable(combo)
             self.table.setCellWidget(row, 4, combo)
 
             # Подключаем сигналы после установки значений

@@ -1,6 +1,9 @@
 """
 data_store.py — JSON хранилище настроек приложения.
 
+Все данные (отделы, продукты, шаблоны, настройки, последние маршруты и т.д.)
+сохраняются в store.json и подгружаются при следующем запуске программы.
+
 Оптимизации:
 - Прямой доступ к данным без лишних deep-copy (get_ref/set_key)
 - Атомарная запись через временный файл (нет риска повреждения)
@@ -67,6 +70,11 @@ DEFAULTS: dict[str, Any] = {
     "settings": {
         "defaultSaveDir": None,
         "showPcsInPreview": True,
+        "defaultFontSize": 12,
+        "defaultMarginTop": 1.5,
+        "defaultMarginLeft": 1.5,
+        "defaultMarginBottom": 0.5,
+        "defaultMarginRight": 0.5,
     },
     "last_main_routes": None,
     "last_increase_routes": None,
@@ -229,6 +237,44 @@ def update_product(name: str, **kwargs) -> bool:
     return False
 
 
+def set_product_label_template(name: str, template_path: str) -> bool:
+    """
+    Устанавливает путь к шаблону этикетки для продукта.
+    Возвращает True, если продукт найден и обновлён.
+    """
+    global _dirty
+    _ensure_loaded()
+    name = (name or "").strip()
+    if not name:
+        return False
+    products: list = _data.get("products", [])
+    for p in products:
+        if p.get("name") == name:
+            p["labelTemplatePath"] = template_path
+            _dirty = True
+            _flush()
+            return True
+    return False
+
+
+def get_setting(key: str) -> Any:
+    """Возвращает значение настройки (например defaultSaveDir, showPcsInPreview)."""
+    _ensure_loaded()
+    settings = _data.get("settings") or {}
+    return settings.get(key)
+
+
+def set_setting(key: str, value: Any) -> None:
+    """Устанавливает одну настройку, не затирая остальные."""
+    global _dirty
+    _ensure_loaded()
+    settings = dict(_data.get("settings") or {})
+    settings[key] = value
+    _data["settings"] = settings
+    _dirty = True
+    _flush()
+
+
 def get_desktop_path() -> str:
     """Возвращает путь к рабочему столу (кэшируется)."""
     global _desktop_cache
@@ -319,15 +365,38 @@ def resolve_product_name(name: str) -> str:
 
 # ─────────────────────────── Шаблоны ──────────────────────────────────────
 
+# Сетка редактора шаблона: 6 строк (3 — заголовки, 3 — данные), 8 столбцов
+GRID_ROWS = 6
+GRID_COLS = 8
+
 FIELD_LABELS: dict[str, str] = {
-    "routeNumber": "№ маршрута",
-    "address":     "Адрес",
-    "product":     "Продукт",
-    "unit":        "Ед. изм.",
-    "quantity":    "Количество",
-    "pcs":         "Шт",
-    "productQty":  "Продукт (кол-во)",
+    "routeNumber":  "№ маршрута",
+    "address":      "Адрес",
+    "product":      "Продукт",
+    "unit":         "Ед. изм.",
+    "quantity":     "Количество",
+    "pcs":          "Шт",
+    "productQty":   "Продукт (кол-во)",
+    "productsWide": "Продукт (колонка на каждый)",
+    "nomenclature": "Номенклатура",
 }
+
+
+def get_department_choices() -> list[tuple[str, str]]:
+    """Список (key, display_name) для комбобокса привязки шаблона к отделу. Первый элемент — «Все отделы»."""
+    _ensure_loaded()
+    result = [("", "Все отделы")]
+    for dept in _data.get("departments", []):
+        key = dept.get("key") or ""
+        name = dept.get("name") or key
+        if key:
+            result.append((key, name))
+        for sub in dept.get("subdepts", []):
+            sk = sub.get("key") or ""
+            sn = sub.get("name") or sk
+            if sk:
+                result.append((sk, f"  └ {sn}"))
+    return result
 
 
 def get_column_label(col: dict) -> str:
@@ -339,20 +408,83 @@ def get_column_label(col: dict) -> str:
     return FIELD_LABELS.get(col["field"], col["field"])
 
 
+def _default_grid() -> list:
+    """Пустая сетка GRID_ROWS×GRID_COLS: каждая ячейка {text, field}."""
+    return [
+        [{"text": "", "field": None} for _ in range(GRID_COLS)]
+        for _ in range(GRID_ROWS)
+    ]
+
+
+def _columns_from_grid(grid: list, merges: list) -> list:
+    """
+    Строит список столбцов (для экспорта) из сетки и объединений.
+    merges: список (r, c, rowSpan, colSpan) — верхний левый угол и размер.
+    """
+    if not grid or len(grid) == 0:
+        return []
+    num_cols = len(grid[0]) if grid[0] else 0
+    cols = []
+    for c in range(num_cols):
+        # Пропускаем ячейки, входящие в объединение слева
+        is_covered = False
+        for (r0, c0, rs, cs) in merges:
+            if r0 == 0 and c0 < c < c0 + cs:
+                is_covered = True
+                break
+        if is_covered:
+            continue
+        cell = grid[0][c] if c < len(grid[0]) else {"text": "", "field": None}
+        row_span, col_span = 1, 1
+        for (r0, c0, rs, cs) in merges:
+            if r0 == 0 and c0 == c:
+                row_span, col_span = rs, cs
+                break
+        label = (cell.get("text") or "").strip() or None
+        field = cell.get("field")
+        if not field and label:
+            # Пытаемся сопоставить с известным полем по подписи
+            for fk, fv in FIELD_LABELS.items():
+                if fv == label:
+                    field = fk
+                    break
+        col = {"field": field or "address", "label": label, "merged": col_span > 1}
+        if col_span > 1 and label:
+            col["productName"] = label
+        cols.append(col)
+    return cols if cols else [
+        {"field": "routeNumber", "label": None, "merged": False},
+        {"field": "address", "label": None, "merged": False},
+    ]
+
+
 def create_template(name: str) -> dict:
-    """Creates a new template with default columns and returns it."""
+    """Создаёт новый шаблон с пустой сеткой 6×8 и возвращает его."""
     global _dirty
     _ensure_loaded()
+    from datetime import date, timedelta
+    tomorrow = (date.today() + timedelta(days=1)).strftime("%d.%m.%Y")
     tmpl = {
         "id": str(uuid.uuid4()),
         "name": name,
         "columns": [
             {"field": "routeNumber", "label": None, "merged": False},
-            {"field": "address",     "label": None, "merged": False},
-            {"field": "product",     "label": None, "merged": False},
-            {"field": "quantity",    "label": None, "merged": False},
+            {"field": "address", "label": None, "merged": False},
+            {"field": "product", "label": None, "merged": False},
+            {"field": "quantity", "label": None, "merged": False},
         ],
         "deptKey": None,
+        "format": "",
+        "grid": _default_grid(),
+        "merges": [],
+        "gridRows": GRID_ROWS,
+        "gridCols": GRID_COLS,
+        "titleRow": {
+            "auto": True,
+            "includeDept": True,
+            "date": tomorrow,
+            "type": "main",
+        },
     }
     _data["templates"].append(tmpl)
     _dirty = True
@@ -374,18 +506,39 @@ def delete_template(template_id: str) -> bool:
     return False
 
 
-def save_template(template_id: str, name: str, columns: list,
-                  dept_key=None, fmt: str = "") -> bool:
-    """Updates an existing template's name, columns, deptKey and format."""
+def save_template(
+    template_id: str,
+    name: str,
+    columns: list,
+    dept_key=None,
+    fmt: str = "",
+    grid: list | None = None,
+    merges: list | None = None,
+    grid_rows: int | None = None,
+    grid_cols: int | None = None,
+    title_row: dict | None = None,
+) -> bool:
+    """Обновляет шаблон: имя, столбцы, отдел, формат, сетка, размер, заголовок."""
     global _dirty
     _ensure_loaded()
     templates: list = _data.get("templates", [])
     for t in templates:
         if t["id"] == template_id:
             t["name"] = name
-            t["columns"] = columns
+            if grid is not None and merges is not None:
+                t["grid"] = grid
+                t["merges"] = merges
+                t["columns"] = _columns_from_grid(grid, merges)
+            else:
+                t["columns"] = columns
             t["deptKey"] = dept_key
             t["format"] = fmt
+            if grid_rows is not None:
+                t["gridRows"] = grid_rows
+            if grid_cols is not None:
+                t["gridCols"] = grid_cols
+            if title_row is not None:
+                t["titleRow"] = title_row
             _dirty = True
             _flush()
             return True

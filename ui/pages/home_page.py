@@ -83,9 +83,10 @@ class DropZone(QFrame):
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
+            from ui.styles import ACCENT, ACCENT_LIGHT
             self.setStyleSheet(
-                "QFrame#card { border: 2px dashed #2563eb; "
-                "background: #eff6ff; border-radius: 10px; }"
+                f"QFrame#card {{ border: 2px dashed {ACCENT}; "
+                f"background: {ACCENT_LIGHT}; border-radius: 10px; }}"
             )
 
     def dragLeaveEvent(self, event):
@@ -148,9 +149,6 @@ class HomePage(QWidget):
         self.btn_process.setFixedHeight(42)
         self.btn_process.setMinimumWidth(200)
         self.btn_process.setEnabled(False)
-        self.btn_process.setToolTip(
-            "Парсить выбранные XLS файлы и перейти к предпросмотру маршрутов"
-        )
         self.btn_process.clicked.connect(self._on_process)
         btn_row.addWidget(self.btn_process)
         lay.addLayout(btn_row)
@@ -198,11 +196,9 @@ class HomePage(QWidget):
 
         self.radio_main = QRadioButton("Основной")
         self.radio_main.setChecked(True)
-        self.radio_main.setToolTip("Создаёт основной файл маршрутов")
         self.radio_main.toggled.connect(self._on_type_changed)
 
         self.radio_increase = QRadioButton("Увеличение (Довоз)")
-        self.radio_increase.setToolTip("Создаёт файл довоза (увеличения количества)")
         self.radio_increase.toggled.connect(self._on_type_changed)
 
         grp = QButtonGroup(w)
@@ -224,7 +220,6 @@ class HomePage(QWidget):
         lbl_shk.setObjectName("subsectionLabel")
         lay.addWidget(lbl_shk)
         self.drop_zone_shk = DropZone()
-        self.drop_zone_shk.setToolTip("Перетащите .xls файлы для школ или нажмите для выбора.")
         self.drop_zone_shk.files_dropped.connect(lambda paths: self._on_drop_or_click(paths, "shk"))
         lay.addWidget(self.drop_zone_shk)
         self.file_list_shk = QListWidget()
@@ -249,7 +244,6 @@ class HomePage(QWidget):
         lbl_sd.setObjectName("subsectionLabel")
         lay.addWidget(lbl_sd)
         self.drop_zone_sd = DropZone()
-        self.drop_zone_sd.setToolTip("Перетащите .xls файлы для садов или нажмите для выбора.")
         self.drop_zone_sd.files_dropped.connect(lambda paths: self._on_drop_or_click(paths, "sd"))
         lay.addWidget(self.drop_zone_sd)
         self.file_list_sd = QListWidget()
@@ -280,12 +274,12 @@ class HomePage(QWidget):
 
         self.lbl_save_dir = QLabel()
         self.lbl_save_dir.setObjectName("stepLabel")
+        self.lbl_save_dir.setWordWrap(True)
         self._update_save_dir_label()
         lay.addWidget(self.lbl_save_dir, 1)
 
         btn_change = QPushButton("Изменить")
         btn_change.setObjectName("btnSecondary")
-        btn_change.setToolTip("Выбрать другую папку для сохранения файлов")
         btn_change.clicked.connect(self._choose_save_dir)
         lay.addWidget(btn_change)
         return w
@@ -330,7 +324,6 @@ class HomePage(QWidget):
                 lst.append(p)
                 existing.add(p)
                 list_w.addItem(QListWidgetItem(f"📄 {Path(p).name}"))
-                list_w.item(list_w.count() - 1).setToolTip(p)
         list_w.setVisible(True)
         btn_add.setVisible(True)
         btn_clear.setVisible(True)
@@ -365,24 +358,18 @@ class HomePage(QWidget):
         )
         if d:
             self.app_state["saveDir"] = d
-            settings = data_store.get("settings") or {}
-            settings["defaultSaveDir"] = d
-            data_store.set_key("settings", settings)
+            data_store.set_setting("defaultSaveDir", d)
             self._update_save_dir_label()
 
     def _reset_save_dir(self):
         self.app_state["saveDir"] = None
-        settings = data_store.get("settings") or {}
-        settings["defaultSaveDir"] = None
-        data_store.set_key("settings", settings)
+        data_store.set_setting("defaultSaveDir", None)
         self._update_save_dir_label()
 
     def _update_save_dir_label(self):
-        # Используем get_ref для быстрого чтения без копирования
-        settings = data_store.get_ref("settings") or {}
         save_dir = (
             self.app_state.get("saveDir") or
-            settings.get("defaultSaveDir") or
+            data_store.get_setting("defaultSaveDir") or
             data_store.get_desktop_path()
         )
         self.app_state["saveDir"] = save_dir
@@ -455,7 +442,7 @@ class HomePage(QWidget):
         if new_items:
             try:
                 from ui.pages.new_products_dialog import run_new_products_dialog
-                decisions = run_new_products_dialog(self.window(), new_items)
+                decisions = run_new_products_dialog(self.window(), new_items, canonical_names)
             except Exception as e:
                 import logging
                 logging.getLogger("app").exception("Диалог новых продуктов: %s", e)
@@ -473,7 +460,7 @@ class HomePage(QWidget):
                         "roundUp": True,
                         "deptKey": None,
                     })
-            if any(d["action"] in ("new", "copy") for d in decisions):
+            if any(d["action"] == "new" for d in decisions):
                 data_store.set_key("products", updated)
 
         self.go_preview.emit()

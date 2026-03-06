@@ -1,5 +1,10 @@
 """
-new_products_dialog.py — Диалог выбора действия для новых названий продуктов из файлов.
+new_products_dialog.py — Диалог выбора для новых названий продуктов (после обработки файлов).
+
+Пользователь для каждого названия выбирает:
+- «Новый продукт» — добавить в справочник (привязку к отделу сделать в «Отделы и продукты»).
+- «Дубликат: <название>» — записать как вариант существующего; при следующих запусках
+  это написание будет автоматически подставляться как выбранное каноническое.
 """
 from __future__ import annotations
 
@@ -10,33 +15,34 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from ui.styles import STYLESHEET
+from ui.widgets import hint_icon_button, make_combo_searchable
 
-# Ключи выбора в комбо
 ACTION_NEW = "new"
-ACTION_COPY = "copy"
 ACTION_ALIAS_PREFIX = "alias:"
 
 
-def run_new_products_dialog(parent, items: list[dict]) -> list[dict]:
+def run_new_products_dialog(parent, items: list[dict], all_canonical: list[str] | None = None) -> list[dict]:
     """
-    items: список {name, unit, similar: list[str]} — похожие канонические названия.
-    Возвращает список решений: {name, unit, action: "new"|"copy"|"alias", canonical?: str}.
+    items: список {name, unit, similar: list[str]} — новые названия из файлов, similar — похожие канонические.
+    all_canonical: все канонические названия справочника (для выбора «Дубликат»).
+    Возвращает: [{name, unit, action: "new"|"alias", canonical?: str}].
     """
     if not items:
         return []
-    dlg = NewProductsDialog(parent, items)
+    dlg = NewProductsDialog(parent, items, all_canonical or [])
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return []
     return dlg.get_decisions()
 
 
 class NewProductsDialog(QDialog):
-    def __init__(self, parent, items: list[dict]):
+    def __init__(self, parent, items: list[dict], all_canonical: list[str] | None = None):
         super().__init__(parent)
         self.setWindowTitle("Новые названия продуктов")
-        self.setMinimumSize(560, 340)
-        self.resize(640, 400)
+        self.setMinimumSize(620, 380)
+        self.resize(760, 460)
         self._items = items
+        self._all_canonical = list(all_canonical or [])
         self._combos: list[QComboBox] = []
         self.setStyleSheet(STYLESHEET)
         self._build_ui()
@@ -45,32 +51,39 @@ class NewProductsDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(20, 16, 20, 16)
         lay.setSpacing(12)
-        hint = QLabel(
-            "Обнаружены названия, которых нет в справочнике. "
-            "Добавьте как вариант к существующему продукту или создайте новый. "
-            "Копию можно потом перетащить к существующему в окне «Продукты»."
-        )
-        hint.setObjectName("stepLabel")
-        hint.setWordWrap(True)
-        lay.addWidget(hint)
+        title_row = QHBoxLayout()
+        title_row.addWidget(QLabel("Обнаружены названия, которых нет в справочнике. Выберите действие для каждого."))
+        title_row.addWidget(hint_icon_button(
+            self,
+            "«Новый продукт» — в справочник; «Дубликат» — вариант существующего.",
+            "Инструкция — Новые названия\n\n"
+            "1. В таблице перечислены названия из загруженного файла, которых нет в справочнике.\n"
+            "2. Для каждого выберите действие: «Новый продукт» — добавить в справочник (привязку к отделу сделаете в «Отделы и продукты»).\n"
+            "3. «Дубликат: [каноническое название]» — записать как вариант выбранного продукта; при следующих запусках это написание будет подставляться автоматически.\n"
+            "4. После выбора нажмите «Сохранить» — данные обновятся, можно продолжить обработку.",
+            "Инструкция",
+        ))
+        title_row.addStretch()
+        lay.addLayout(title_row)
         self.table = QTableWidget(len(self._items), 2)
         self.table.setHorizontalHeaderLabels(["Название из файла", "Действие"])
-        self.table.setToolTip("Для каждого нового названия выберите: добавить как новый продукт, копию или вариант существующего")
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
-        self.table.setMinimumHeight(max(120, min(280, 44 * min(len(self._items), 8))))
+        self.table.setMinimumHeight(max(140, min(320, 44 * min(len(self._items), 10))))
         for row, it in enumerate(self._items):
             self.table.setItem(row, 0, QTableWidgetItem(f"{it['name']}  ({it.get('unit', '')})"))
             combo = QComboBox()
             combo.addItem("Новый продукт", ACTION_NEW)
-            combo.addItem("Копия (связать вручную в окне Продукты)", ACTION_COPY)
             similar = it.get("similar") or []
-            if similar:
-                combo.insertSeparator(2)
-                for c in similar:
-                    combo.addItem(f"Добавить к: {c}", ACTION_ALIAS_PREFIX + c)
-            # по умолчанию — «Новый продукт» (индекс 0)
+            # Сначала похожие канонические, затем остальные (без повторов)
+            seen = set(similar)
+            ordered_canonical = similar + [c for c in self._all_canonical if c not in seen]
+            if ordered_canonical:
+                combo.insertSeparator(1)
+                for c in ordered_canonical:
+                    combo.addItem(f"Дубликат: {c}", ACTION_ALIAS_PREFIX + c)
+            make_combo_searchable(combo)
             self._combos.append(combo)
             self.table.setCellWidget(row, 1, combo)
         lay.addWidget(self.table)
@@ -78,11 +91,9 @@ class NewProductsDialog(QDialog):
         btn_row.addStretch()
         ok_btn = QPushButton("Применить")
         ok_btn.setObjectName("btnPrimary")
-        ok_btn.setToolTip("Сохранить выбранные действия для всех новых названий")
         ok_btn.clicked.connect(self.accept)
         cancel_btn = QPushButton("Отмена")
         cancel_btn.setObjectName("btnSecondary")
-        cancel_btn.setToolTip("Отменить и не добавлять новые продукты в справочник")
         cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(ok_btn)
         btn_row.addWidget(cancel_btn)
@@ -97,8 +108,6 @@ class NewProductsDialog(QDialog):
             val = combo.currentData()
             if val == ACTION_NEW:
                 decisions.append({"name": it["name"], "unit": it.get("unit", ""), "action": "new"})
-            elif val == ACTION_COPY:
-                decisions.append({"name": it["name"], "unit": it.get("unit", ""), "action": "copy"})
             elif isinstance(val, str) and val.startswith(ACTION_ALIAS_PREFIX):
                 canonical = val[len(ACTION_ALIAS_PREFIX):]
                 decisions.append({"name": it["name"], "unit": it.get("unit", ""), "action": "alias", "canonical": canonical})

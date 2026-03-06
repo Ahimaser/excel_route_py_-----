@@ -31,6 +31,7 @@ from PyQt6.QtGui import QFont, QColor, QBrush, QWheelEvent, QShortcut, QKeySeque
 
 from core import data_store, excel_generator
 from core.xls_parser import ROUTE_SIGN
+from ui.widgets import make_combo_searchable
 
 log = logging.getLogger("preview_general")
 
@@ -210,17 +211,28 @@ def _build_rows(routes: list, prod_settings: dict,
         except ValueError:
             return (1, 0)
 
-    def _fmt_qty(prod: dict) -> str:
+    def _fmt_qty(prod: dict, route: dict) -> str:
         qty = prod.get("quantity")
         if qty is None:
             return ""
         ps = prod_settings.get(prod["name"], {})
+        mult = float(ps.get("quantityMultiplier", 1.0) or 1.0)
+        try:
+            display_qty = float(qty) * mult
+        except (ValueError, TypeError):
+            display_qty = qty
         if ps.get("showPcs") and ps.get("pcsPerUnit", 0) > 0:
-            pcs = excel_generator.calc_pcs(
-                qty, ps["pcsPerUnit"], ps.get("roundUp", True)
+            route_cat = route.get("routeCategory") or "ШК"
+            round_up = (
+                ps.get("roundUpСД") if "roundUpСД" in ps else ps.get("roundUp", True)
+                if route_cat == "СД"
+                else ps.get("roundUpШК") if "roundUpШК" in ps else ps.get("roundUp", True)
             )
-            return f"{qty} / {pcs} шт"
-        return str(qty)
+            pcs = excel_generator.calc_pcs(
+                display_qty, ps["pcsPerUnit"], round_up
+            )
+            return f"{display_qty} / {pcs} шт"
+        return str(display_qty)
 
     sorted_routes = sorted(routes, key=_sort_key)
     rows_data: list[dict] = []
@@ -263,7 +275,7 @@ def _build_rows(routes: list, prod_settings: dict,
                         "routeNum":  "",
                         "address":   f"  {p['name']}",
                         "unit":      p.get("unit", ""),
-                        "quantity":  _fmt_qty(p),
+                        "quantity":  _fmt_qty(p, r),
                         "route_ref": r,
                     })
         else:
@@ -273,7 +285,7 @@ def _build_rows(routes: list, prod_settings: dict,
                     "routeNum":  "",
                     "address":   f"  {p['name']}",
                     "unit":      p.get("unit", ""),
-                    "quantity":  _fmt_qty(p),
+                    "quantity":  _fmt_qty(p, r),
                     "route_ref": r,
                 })
 
@@ -337,7 +349,6 @@ class EditPanel(QFrame):
         btn_close = QPushButton("×")
         btn_close.setObjectName("btnPanelClose")
         btn_close.setFixedSize(24, 24)
-        btn_close.setToolTip("Закрыть панель")
         btn_close.clicked.connect(self._on_close)
         title_row.addWidget(btn_close)
         lay.addLayout(title_row)
@@ -455,14 +466,15 @@ class PreviewGeneralPage(QWidget):
     """Предпросмотр и генерация файла «Общие маршруты»."""
 
     go_back         = pyqtSignal()
-    go_dept_preview = pyqtSignal()
+    go_home         = pyqtSignal()   # Переход на главную (dashboard)
+    go_dept_preview = pyqtSignal()   # Переход к маршрутам по отделам
     go_settings     = pyqtSignal()   # Переход к настройкам Шт
-    go_clear_routes = pyqtSignal()    # Очистить маршруты и вернуться на главную
+    go_clear_routes = pyqtSignal()   # Очистить маршруты и вернуться на главную
 
     def __init__(self, app_state: dict):
         super().__init__()
         self.app_state       = app_state
-        self._display_mode   = _DISPLAY_FULL
+        self._display_mode   = _DISPLAY_ADDR  # по умолчанию только № маршрута и адрес
         self._filter_product = ""
         self._search_text    = ""
         self._rendering      = False
@@ -488,11 +500,19 @@ class PreviewGeneralPage(QWidget):
 
         # Заголовок
         h_row = QHBoxLayout()
-        btn_back = QPushButton("< Назад")
+        btn_back = QPushButton("← Назад")
         btn_back.setObjectName("btnBack")
-        btn_back.setToolTip("Вернуться на страницу обработки файлов")
         btn_back.clicked.connect(self.go_back.emit)
         h_row.addWidget(btn_back)
+        btn_home = QPushButton("На главную")
+        btn_home.setObjectName("btnSecondary")
+        btn_home.clicked.connect(self.go_home.emit)
+        h_row.addWidget(btn_home)
+        self.btn_dept_preview = QPushButton("Маршруты по отделам")
+        self.btn_dept_preview.setObjectName("btnSecondary")
+        self.btn_dept_preview.clicked.connect(self.go_dept_preview.emit)
+        self.btn_dept_preview.setEnabled(False)
+        h_row.addWidget(self.btn_dept_preview)
 
         self.lbl_title = QLabel("Общие маршруты")
         self.lbl_title.setObjectName("sectionTitle")
@@ -506,16 +526,15 @@ class PreviewGeneralPage(QWidget):
         self.lbl_no_num = QLabel("")
         self.lbl_no_num.setObjectName("badgeRed")
         self.lbl_no_num.setVisible(False)
+        self.lbl_no_num.setWordWrap(True)
         h_row.addWidget(self.lbl_no_num)
 
         self.lbl_font_size = QLabel("Размер текста: 13")
         self.lbl_font_size.setObjectName("badge")
-        self.lbl_font_size.setToolTip("Ctrl + колёсико мыши над таблицей — изменить")
         h_row.addWidget(self.lbl_font_size)
 
-        btn_settings = QPushButton("⚙ Настройки Шт")
+        btn_settings = QPushButton("Справочник продуктов")
         btn_settings.setObjectName("btnSecondary")
-        btn_settings.setToolTip("Открыть настройки отображения в штуках")
         btn_settings.clicked.connect(self.go_settings.emit)
         h_row.addWidget(btn_settings)
 
@@ -533,7 +552,6 @@ class PreviewGeneralPage(QWidget):
         self.le_search.setClearButtonEnabled(True)
         self.le_search.setMinimumWidth(240)
         self.le_search.textChanged.connect(self._on_search_changed)
-        self.le_search.setToolTip("Быстрый поиск по адресу или номеру маршрута (Ctrl+F)")
         filter_lay.addWidget(self.le_search)
         sc_search = QShortcut(QKeySequence("Ctrl+F"), self)
         sc_search.activated.connect(self.le_search.setFocus)
@@ -542,27 +560,24 @@ class PreviewGeneralPage(QWidget):
         self.combo_product = QComboBox()
         self.combo_product.setMinimumWidth(180)
         self.combo_product.addItem("Все продукты", "")
+        make_combo_searchable(self.combo_product)
         self.combo_product.currentIndexChanged.connect(self._on_product_filter_changed)
         filter_lay.addWidget(self.combo_product)
 
         filter_lay.addWidget(QLabel("Фильтр:"))
         self.combo_display = QComboBox()
         self.combo_display.setMinimumWidth(160)
-        self.combo_display.addItem("Полностью",      _DISPLAY_FULL)
-        self.combo_display.addItem("Только адреса",  _DISPLAY_ADDR)
-        self.combo_display.addItem("Только продукт", _DISPLAY_PRODUCT)
-        self.combo_display.setToolTip(
-            "Полностью -- маршруты и все строки продуктов\n"
-            "Только адреса -- скрыть строки продуктов\n"
-            "Только продукт -- показать строки только выбранного продукта"
-        )
+        self.combo_display.addItem("Только № и адрес", _DISPLAY_ADDR)
+        self.combo_display.addItem("Полностью",        _DISPLAY_FULL)
+        self.combo_display.addItem("Только продукт",   _DISPLAY_PRODUCT)
+        self.combo_display.setCurrentIndex(0)  # по умолчанию — только № и адрес
+        make_combo_searchable(self.combo_display)
         self.combo_display.currentIndexChanged.connect(self._on_display_changed)
         filter_lay.addWidget(self.combo_display)
 
         # Кнопка сортировки
         self.btn_sort = QPushButton("↓ По убыванию")
         self.btn_sort.setObjectName("btnSecondary")
-        self.btn_sort.setToolTip("Сортировка по номеру маршрута")
         self.btn_sort.clicked.connect(self._on_sort_toggle)
         filter_lay.addWidget(self.btn_sort)
 
@@ -570,7 +585,6 @@ class PreviewGeneralPage(QWidget):
 
         btn_reset = QPushButton("Сбросить")
         btn_reset.setObjectName("btnSecondary")
-        btn_reset.setToolTip("Сбросить поиск и фильтр по продукту")
         btn_reset.clicked.connect(self._reset_filters)
         filter_lay.addWidget(btn_reset)
 
@@ -588,7 +602,7 @@ class PreviewGeneralPage(QWidget):
         hdr = self.table.horizontalHeader()
         hdr.setMinimumSectionSize(90)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -602,10 +616,6 @@ class PreviewGeneralPage(QWidget):
         self._table_font_size = 13
         self.table.setFont(QFont("", self._table_font_size))
         self.table.installEventFilter(self)
-        self.table.setToolTip(
-            "Ctrl + колёсико мыши — изменить размер текста. "
-            "Ctrl/Shift + клик — выбрать несколько маршрутов. Правый клик — удалить или исключить."
-        )
         content_row.addWidget(self.table, stretch=1)
 
         # Боковая панель
@@ -627,21 +637,18 @@ class PreviewGeneralPage(QWidget):
         self.btn_clear = QPushButton("Очистить маршруты")
         self.btn_clear.setObjectName("btnDanger")
         self.btn_clear.setFixedHeight(40)
-        self.btn_clear.setToolTip("Удалить загруженные данные (если загружен неправильный файл)")
         self.btn_clear.clicked.connect(self._on_clear_routes)
         bottom_row.addWidget(self.btn_clear)
 
         self.btn_generate = QPushButton("Создать файл «Общие маршруты»")
         self.btn_generate.setObjectName("btnPrimary")
         self.btn_generate.setFixedHeight(40)
-        self.btn_generate.setToolTip("Создать Excel-файл «Общие маршруты» в выбранную папку сохранения")
         self.btn_generate.clicked.connect(self._on_generate)
         bottom_row.addWidget(self.btn_generate)
 
         self.btn_labels = QPushButton("Этикетки из шаблонов (XLS)")
         self.btn_labels.setObjectName("btnSecondary")
         self.btn_labels.setFixedHeight(40)
-        self.btn_labels.setToolTip("Создать этикетки в папку «Этикетки на ДД.ММ.ГГГГ» (завтра)")
         self.btn_labels.clicked.connect(self._on_labels_from_templates)
         bottom_row.addWidget(self.btn_labels)
 
@@ -692,6 +699,8 @@ class PreviewGeneralPage(QWidget):
             self.combo_product.addItem(p["name"], p["name"])
         self.combo_product.blockSignals(False)
         self.edit_panel.clear()
+        has_routes = bool([r for r in self.app_state.get("filteredRoutes", []) if not r.get("excluded")])
+        self.btn_dept_preview.setEnabled(has_routes)
         self._render_table()
 
     # ─────────────────────────── Рендер ───────────────────────────────────
@@ -762,6 +771,10 @@ class PreviewGeneralPage(QWidget):
         )
         self._update_no_num_label(no_num_count)
 
+        # Кнопка «Маршруты по отделам» активна, если есть данные о маршрутах
+        has_routes = bool(all_routes) and sum(1 for r in all_routes if not r.get("excluded")) > 0
+        self.btn_dept_preview.setEnabled(has_routes)
+
         log.debug("_on_render_done done")
 
         if self._render_pending:
@@ -779,7 +792,7 @@ class PreviewGeneralPage(QWidget):
         self._render_table()
 
     def _on_display_changed(self) -> None:
-        self._display_mode = self.combo_display.currentData() or _DISPLAY_FULL
+        self._display_mode = self.combo_display.currentData() or _DISPLAY_ADDR
         self._render_table()
 
     def _on_sort_toggle(self) -> None:
@@ -800,11 +813,11 @@ class PreviewGeneralPage(QWidget):
         self.combo_product.setCurrentIndex(0)
         self.combo_product.blockSignals(False)
         self.combo_display.blockSignals(True)
-        self.combo_display.setCurrentIndex(0)
+        self.combo_display.setCurrentIndex(0)  # Только № и адрес
         self.combo_display.blockSignals(False)
         self._search_text    = ""
         self._filter_product = ""
-        self._display_mode   = _DISPLAY_FULL
+        self._display_mode   = _DISPLAY_ADDR
         self._sort_asc       = False
         self.btn_sort.setText("↓ По убыванию")
         self.app_state["sortAsc"] = False
