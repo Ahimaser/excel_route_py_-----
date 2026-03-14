@@ -18,14 +18,14 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QCheckBox, QDoubleSpinBox,
-    QComboBox, QHeaderView, QAbstractItemView, QLineEdit, QWidget
+    QTableWidget, QTableWidgetItem, QDoubleSpinBox,
+    QComboBox, QHeaderView, QAbstractItemView, QLineEdit, QWidget,
+    QScrollArea, QFrame,
 )
 from PyQt6.QtCore import Qt, QTimer
 
 from core import data_store
-from ui.styles import STYLESHEET
-from ui.widgets import hint_icon_button, make_combo_searchable
+from ui.widgets import hint_icon_button, ToggleSwitch
 
 
 class SettingsDialog(QDialog):
@@ -46,14 +46,14 @@ class SettingsDialog(QDialog):
         self._search_timer.setInterval(200)
         self._search_timer.timeout.connect(self._apply_filter)
 
-        self.setStyleSheet(STYLESHEET)
         self._build_ui()
         QTimer.singleShot(0, self._load_table)
 
     # ─────────────────────────── Построение UI ────────────────────────────
 
     def _build_ui(self):
-        lay = QVBoxLayout(self)
+        content = QWidget()
+        lay = QVBoxLayout(content)
         lay.setContentsMargins(24, 20, 24, 20)
         lay.setSpacing(14)
 
@@ -96,10 +96,10 @@ class SettingsDialog(QDialog):
 
         # Таблица
         self.table = QTableWidget()
-        self.table.setColumnCount(7)
+        self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels([
             "Продукт", "Ед. изм.", "Показывать Шт", "Кол-во в 1 шт",
-            "Коэфф. замены", "Округление ШК", "Округление СД"
+            "От кол-ва шт", "Коэфф. замены", "Хвостик ШК", "Хвостик СД"
         ])
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -109,6 +109,7 @@ class SettingsDialog(QDialog):
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.verticalHeader().setVisible(False)
@@ -133,6 +134,16 @@ class SettingsDialog(QDialog):
         btn_row.addWidget(btn_save)
 
         lay.addLayout(btn_row)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(content)
+        main_lay = QVBoxLayout(self)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.addWidget(scroll)
 
     # ─────────────────────────── Поиск ────────────────────────────────────
 
@@ -172,10 +183,9 @@ class SettingsDialog(QDialog):
 
             show_pcs = prod.get("showPcs", False)
 
-            # Чекбокс «Показывать Шт»
-            chk = QCheckBox()
+            # Переключатель «Показывать Шт»
+            chk = ToggleSwitch()
             chk.setChecked(show_pcs)
-            chk.setObjectName("tableCheckBox")
             chk_widget = QWidget()
             chk_lay = QHBoxLayout(chk_widget)
             chk_lay.addWidget(chk)
@@ -192,6 +202,16 @@ class SettingsDialog(QDialog):
             spin.setEnabled(show_pcs)
             self.table.setCellWidget(row, 3, spin)
 
+            # От какого количества считать шт (ниже — 0 шт)
+            spin_min = QDoubleSpinBox()
+            spin_min.setRange(0, 99999.0)
+            spin_min.setDecimals(3)
+            spin_min.setSingleStep(0.1)
+            spin_min.setValue(prod.get("minQtyForPcs", 0) or 0)
+            spin_min.setEnabled(show_pcs)
+            spin_min.setToolTip("Ниже этого количества — 0 шт. От этого и выше — расчёт по «Кол-во в 1 шт» и округлению.")
+            self.table.setCellWidget(row, 4, spin_min)
+
             # Коэфф. замены (множитель количества, напр. 1.25 для очищенные → грязные)
             spin_mult = QDoubleSpinBox()
             spin_mult.setRange(0.01, 100.0)
@@ -202,53 +222,53 @@ class SettingsDialog(QDialog):
                 "Отображаемое количество = количество × коэффициент. "
                 "Пример: 1,25 для «Морковь очищенная» (кг) — в файле показывается как грязная (× 1,25)."
             )
-            self.table.setCellWidget(row, 4, spin_mult)
+            self.table.setCellWidget(row, 5, spin_mult)
 
-            # Округление ШК
-            round_shk = prod.get("roundUpШК") if "roundUpШК" in prod else prod.get("roundUp", True)
-            combo_shk = QComboBox()
-            combo_shk.addItem("В большую сторону", True)
-            combo_shk.addItem("В меньшую сторону", False)
-            combo_shk.setCurrentIndex(0 if round_shk else 1)
-            combo_shk.setEnabled(show_pcs)
-            self.table.setCellWidget(row, 5, combo_shk)
+            # Хвостик ШК: от остатка (ед.) не меньше — добавляем 1 шт
+            spin_tail_shk = QDoubleSpinBox()
+            spin_tail_shk.setRange(0, 99999.0)
+            spin_tail_shk.setDecimals(3)
+            spin_tail_shk.setSingleStep(0.01)
+            v_shk = prod.get("roundTailFromШК")
+            spin_tail_shk.setValue(v_shk if v_shk is not None else (0 if prod.get("roundUpШК", True) else float(prod.get("pcsPerUnit", 1))))
+            spin_tail_shk.setEnabled(show_pcs)
+            spin_tail_shk.setToolTip("Добавлять 1 шт, если остаток ≥ этого значения (ШК). 0 = в большую; ≥ вес 1 шт = в меньшую.")
+            self.table.setCellWidget(row, 6, spin_tail_shk)
 
-            # Округление СД
-            round_sd = prod.get("roundUpСД") if "roundUpСД" in prod else prod.get("roundUp", True)
-            combo_sd = QComboBox()
-            combo_sd.addItem("В большую сторону", True)
-            combo_sd.addItem("В меньшую сторону", False)
-            combo_sd.setCurrentIndex(0 if round_sd else 1)
-            combo_sd.setEnabled(show_pcs)
-            make_combo_searchable(combo_shk)
-            make_combo_searchable(combo_sd)
-            self.table.setCellWidget(row, 6, combo_sd)
+            # Хвостик СД
+            spin_tail_sd = QDoubleSpinBox()
+            spin_tail_sd.setRange(0, 99999.0)
+            spin_tail_sd.setDecimals(3)
+            spin_tail_sd.setSingleStep(0.01)
+            v_sd = prod.get("roundTailFromСД")
+            spin_tail_sd.setValue(v_sd if v_sd is not None else (0 if prod.get("roundUpСД", True) else float(prod.get("pcsPerUnit", 1))))
+            spin_tail_sd.setEnabled(show_pcs)
+            spin_tail_sd.setToolTip("Добавлять 1 шт, если остаток ≥ этого значения (СД).")
+            self.table.setCellWidget(row, 7, spin_tail_sd)
 
             # Сигналы
             chk.stateChanged.connect(
-                lambda state, n=name, s=spin, c1=combo_shk, c2=combo_sd: self._on_show_pcs(n, state, s, c1, c2)
+                lambda state, n=name, s=spin, sm=spin_min, t1=spin_tail_shk, t2=spin_tail_sd: self._on_show_pcs(n, state, s, sm, t1, t2)
             )
             spin.valueChanged.connect(lambda val, n=name: self._on_pcs_per_unit(n, val))
+            spin_min.valueChanged.connect(lambda val, n=name: self._on_min_qty_for_pcs(n, val))
             spin_mult.valueChanged.connect(lambda val, n=name: self._on_multiplier(n, val))
-            combo_shk.currentIndexChanged.connect(
-                lambda idx, n=name, c=combo_shk: self._on_round_shk(n, c.currentData())
-            )
-            combo_sd.currentIndexChanged.connect(
-                lambda idx, n=name, c=combo_sd: self._on_round_sd(n, c.currentData())
-            )
+            spin_tail_shk.valueChanged.connect(lambda val, n=name: self._on_tail_shk(n, val))
+            spin_tail_sd.valueChanged.connect(lambda val, n=name: self._on_tail_sd(n, val))
 
         self._updating = False
 
     # ─────────────────────────── Обработчики изменений ────────────────────
 
     def _on_show_pcs(self, name: str, state: int, spin: QDoubleSpinBox,
-                     combo_shk: QComboBox, combo_sd: QComboBox):
+                     spin_min: QDoubleSpinBox, spin_tail_shk: QDoubleSpinBox, spin_tail_sd: QDoubleSpinBox):
         if self._updating:
             return
         show = state == Qt.CheckState.Checked.value
         spin.setEnabled(show)
-        combo_shk.setEnabled(show)
-        combo_sd.setEnabled(show)
+        spin_min.setEnabled(show)
+        spin_tail_shk.setEnabled(show)
+        spin_tail_sd.setEnabled(show)
         data_store.update_product(name, showPcs=show)
 
     def _on_pcs_per_unit(self, name: str, val: float):
@@ -256,15 +276,20 @@ class SettingsDialog(QDialog):
             return
         data_store.update_product(name, pcsPerUnit=val)
 
-    def _on_round_shk(self, name: str, round_up: bool):
+    def _on_min_qty_for_pcs(self, name: str, val: float):
         if self._updating:
             return
-        data_store.update_product(name, roundUpШК=round_up)
+        data_store.update_product(name, minQtyForPcs=val if val > 0 else None)
 
-    def _on_round_sd(self, name: str, round_up: bool):
+    def _on_tail_shk(self, name: str, val: float):
         if self._updating:
             return
-        data_store.update_product(name, roundUpСД=round_up)
+        data_store.update_product(name, roundTailFromШК=val)
+
+    def _on_tail_sd(self, name: str, val: float):
+        if self._updating:
+            return
+        data_store.update_product(name, roundTailFromСД=val)
 
     def _on_multiplier(self, name: str, val: float):
         if self._updating:
@@ -284,7 +309,6 @@ class PcsSettingsDialog(QDialog):
         self.setWindowTitle("Кол-во в шт")
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setMinimumSize(420, 320)
-        self.setStyleSheet(STYLESHEET)
         self._build_ui()
         self._load_product()
 
@@ -307,7 +331,7 @@ class PcsSettingsDialog(QDialog):
         # Показывать Шт
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Показывать Шт:"))
-        self.chk_show = QCheckBox()
+        self.chk_show = ToggleSwitch()
         self.chk_show.stateChanged.connect(self._on_show_changed)
         row1.addWidget(self.chk_show)
         row1.addStretch()
@@ -324,6 +348,19 @@ class PcsSettingsDialog(QDialog):
         row2.addWidget(self.spin_pcs)
         row2.addStretch()
         lay.addLayout(row2)
+
+        # От какого количества считать шт
+        row_min = QHBoxLayout()
+        row_min.addWidget(QLabel("От кол-ва шт:"))
+        self.spin_min_qty = QDoubleSpinBox()
+        self.spin_min_qty.setRange(0, 99999.0)
+        self.spin_min_qty.setDecimals(3)
+        self.spin_min_qty.setSingleStep(0.1)
+        self.spin_min_qty.setToolTip("Ниже этого количества — 0 шт. От этого и выше — расчёт по «Кол-во в 1 шт» и округлению.")
+        self.spin_min_qty.valueChanged.connect(self._on_min_qty_changed)
+        row_min.addWidget(self.spin_min_qty)
+        row_min.addStretch()
+        lay.addLayout(row_min)
 
         # Коэфф. замены с пояснением и примером
         row_mult = QHBoxLayout()
@@ -349,30 +386,34 @@ class PcsSettingsDialog(QDialog):
         lbl_mult_hint.setWordWrap(True)
         lay.addWidget(lbl_mult_hint)
 
-        # Округление ШК / СД
+        # Хвостик ШК — граница остатка: при остатке от неё включительно округление в большую
         row3 = QHBoxLayout()
-        row3.addWidget(QLabel("Округление ШК:"))
-        self.combo_shk = QComboBox()
-        self.combo_shk.addItem("В большую сторону", True)
-        self.combo_shk.addItem("В меньшую сторону", False)
-        self.combo_shk.currentIndexChanged.connect(
-            lambda: self._on_round_shk(self.combo_shk.currentData())
+        row3.addWidget(QLabel("Хвостик ШК (остаток ≥ — в большую):"))
+        self.spin_tail_shk = QDoubleSpinBox()
+        self.spin_tail_shk.setRange(0, 99999.0)
+        self.spin_tail_shk.setDecimals(3)
+        self.spin_tail_shk.setSingleStep(0.01)
+        self.spin_tail_shk.setToolTip(
+            "Граница остатка (кг, л и т.д.): при остатке от этого значения включительно — +1 шт. "
+            "Пример: 1 шт = 0.7, хвостик = 0.35 → при остатке ≥ 0.35 в большую. 0 = при любом остатке в большую."
         )
-        make_combo_searchable(self.combo_shk)
-        row3.addWidget(self.combo_shk)
+        self.spin_tail_shk.valueChanged.connect(lambda: self._on_tail_shk(self.spin_tail_shk.value()))
+        row3.addWidget(self.spin_tail_shk)
         row3.addStretch()
         lay.addLayout(row3)
 
+        # Хвостик СД — граница остатка: при остатке от неё включительно округление в большую
         row4 = QHBoxLayout()
-        row4.addWidget(QLabel("Округление СД:"))
-        self.combo_sd = QComboBox()
-        self.combo_sd.addItem("В большую сторону", True)
-        self.combo_sd.addItem("В меньшую сторону", False)
-        self.combo_sd.currentIndexChanged.connect(
-            lambda: self._on_round_sd(self.combo_sd.currentData())
+        row4.addWidget(QLabel("Хвостик СД (остаток ≥ — в большую):"))
+        self.spin_tail_sd = QDoubleSpinBox()
+        self.spin_tail_sd.setRange(0, 99999.0)
+        self.spin_tail_sd.setDecimals(3)
+        self.spin_tail_sd.setSingleStep(0.01)
+        self.spin_tail_sd.setToolTip(
+            "Граница остатка (кг, л и т.д.): при остатке от этого значения включительно — +1 шт. 0 = при любом остатке в большую."
         )
-        make_combo_searchable(self.combo_sd)
-        row4.addWidget(self.combo_sd)
+        self.spin_tail_sd.valueChanged.connect(lambda: self._on_tail_sd(self.spin_tail_sd.value()))
+        row4.addWidget(self.spin_tail_sd)
         row4.addStretch()
         lay.addLayout(row4)
 
@@ -395,8 +436,9 @@ class PcsSettingsDialog(QDialog):
             self.lbl_product.setText(self._product_name)
             self.chk_show.setEnabled(False)
             self.spin_pcs.setEnabled(False)
-            self.combo_shk.setEnabled(False)
-            self.combo_sd.setEnabled(False)
+            self.spin_min_qty.setEnabled(False)
+            self.spin_tail_shk.setEnabled(False)
+            self.spin_tail_sd.setEnabled(False)
             return
         unit = (prod.get("unit") or "").strip().lower()
         self.lbl_product.setText(f"{prod['name']}  ({prod.get('unit', '')})")
@@ -406,46 +448,49 @@ class PcsSettingsDialog(QDialog):
             )
             self.chk_show.setEnabled(False)
             self.spin_pcs.setEnabled(False)
-            self.combo_shk.setEnabled(False)
-            self.combo_sd.setEnabled(False)
+            self.spin_min_qty.setEnabled(False)
+            self.spin_tail_shk.setEnabled(False)
+            self.spin_tail_sd.setEnabled(False)
             return
         show_pcs = prod.get("showPcs", False)
         self.chk_show.setChecked(show_pcs)
         self.spin_pcs.setValue(prod.get("pcsPerUnit", 1.0))
+        self.spin_min_qty.setValue(prod.get("minQtyForPcs", 0) or 0)
+        v_shk = prod.get("roundTailFromШК")
+        self.spin_tail_shk.setValue(v_shk if v_shk is not None else (0 if prod.get("roundUpШК", True) else float(prod.get("pcsPerUnit", 1))))
+        v_sd = prod.get("roundTailFromСД")
+        self.spin_tail_sd.setValue(v_sd if v_sd is not None else (0 if prod.get("roundUpСД", True) else float(prod.get("pcsPerUnit", 1))))
         self.spin_pcs.setEnabled(show_pcs)
+        self.spin_min_qty.setEnabled(show_pcs)
+        self.spin_tail_shk.setEnabled(show_pcs)
+        self.spin_tail_sd.setEnabled(show_pcs)
         self.spin_mult.setValue(float(prod.get("quantityMultiplier", 1.0) or 1.0))
-        round_shk = prod.get("roundUpШК") if "roundUpШК" in prod else prod.get("roundUp", True)
-        round_sd = prod.get("roundUpСД") if "roundUpСД" in prod else prod.get("roundUp", True)
-        self.combo_shk.setCurrentIndex(0 if round_shk else 1)
-        self.combo_sd.setCurrentIndex(0 if round_sd else 1)
-        self.combo_shk.setEnabled(show_pcs)
-        self.combo_sd.setEnabled(show_pcs)
 
     def _on_show_changed(self, state: int):
         show = state == Qt.CheckState.Checked.value
         self.spin_pcs.setEnabled(show)
-        self.combo_shk.setEnabled(show)
-        self.combo_sd.setEnabled(show)
+        self.spin_min_qty.setEnabled(show)
+        self.spin_tail_shk.setEnabled(show)
+        self.spin_tail_sd.setEnabled(show)
         data_store.update_product(self._product_name, showPcs=show)
 
     def _on_pcs_changed(self, val: float):
         data_store.update_product(self._product_name, pcsPerUnit=val)
+
+    def _on_min_qty_changed(self, val: float):
+        data_store.update_product(self._product_name, minQtyForPcs=val if val > 0 else None)
+
+    def _on_tail_shk(self, val: float):
+        data_store.update_product(self._product_name, roundTailFromШК=val)
+
+    def _on_tail_sd(self, val: float):
+        data_store.update_product(self._product_name, roundTailFromСД=val)
 
     def _on_multiplier_changed(self, val: float):
         data_store.update_product(
             self._product_name,
             quantityMultiplier=val if val != 1.0 else None,
         )
-
-    def _on_round_shk(self, round_up: bool):
-        if round_up is None:
-            return
-        data_store.update_product(self._product_name, roundUpШК=round_up)
-
-    def _on_round_sd(self, round_up: bool):
-        if round_up is None:
-            return
-        data_store.update_product(self._product_name, roundUpСД=round_up)
 
     def _save_and_close(self):
         if self._on_saved is not None:

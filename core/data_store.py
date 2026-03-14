@@ -17,10 +17,14 @@ import copy
 import json
 import logging
 import os
+import re
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
+
+# Регулярка для кода учреждения: только первые 3–4 цифры (109/1 → 109, 1391/2 → 1391)
+_INSTITUTION_RE = re.compile(r"^\s*(\d{3,4})\b")
 
 # Имя папки данных (не менять — сохраняет совместимость с существующими данными)
 APP_NAME = "ExcelRouteManager"
@@ -75,9 +79,29 @@ DEFAULTS: dict[str, Any] = {
         "defaultMarginLeft": 1.5,
         "defaultMarginBottom": 0.5,
         "defaultMarginRight": 0.5,
+        # Список кодов учреждений (3–4 цифры), для которых Шт округляются в большую сторону.
+        "alwaysRoundUpInstitutions": [],
+        # Адреса, для которых округление отключено (даже если учреждение в списке).
+        "excludeRoundUpAddresses": [],
+        # % от 1 шт по умолчанию (при остатке ≥ этого процента — округление в большую).
+        "roundUpInstitutionPercent": 20,
+        # % по отделам: {ключ отдела: процент}. Если отдел не указан — используется roundUpInstitutionPercent.
+        "roundUpPercentByDept": {},
+        # Печать этикеток: последний выбранный принтер.
+        "labelsLastPrinter": "",
+        # Отступы печати этикеток по умолчанию (см): верх/право=2, низ/лево=0.
+        "labelsPrintMargins": {
+            "top_cm": 2.0,
+            "right_cm": 2.0,
+            "bottom_cm": 0.0,
+            "left_cm": 0.0,
+        },
+        # Очистка временных файлов после закрытия preview.
+        "labelsTempAutoCleanup": True,
     },
     "last_main_routes": None,
     "last_increase_routes": None,
+    "routes_history": [],
 }
 
 # ─────────────────────────── Состояние модуля ─────────────────────────────
@@ -139,7 +163,47 @@ def _ensure_loaded() -> None:
         _data["last_main_routes"] = None
     if "last_increase_routes" not in _data:
         _data["last_increase_routes"] = None
+    if "routes_history" not in _data or not isinstance(_data.get("routes_history"), list):
+        _data["routes_history"] = []
     _data["settings"] = _data.get("settings") or {}
+    # Гарантируем наличие ключей округления по учреждениям
+    if "alwaysRoundUpInstitutions" not in _data["settings"]:
+        _data["settings"]["alwaysRoundUpInstitutions"] = []
+    else:
+        # Миграция: 109/1 → 109, 1391/2 → 1391 (только первые 3–4 цифры)
+        old = _data["settings"]["alwaysRoundUpInstitutions"]
+        if old and isinstance(old, list):
+            normalized = set()
+            for code in old:
+                if isinstance(code, str) and code.strip():
+                    m = _INSTITUTION_RE.match(code.strip())
+                    if m:
+                        normalized.add(m.group(1))
+                    else:
+                        normalized.add(code.strip())
+            new_list = sorted(normalized)
+            if new_list != old:
+                _data["settings"]["alwaysRoundUpInstitutions"] = new_list
+                global _dirty
+                _dirty = True
+                _flush()
+    if "excludeRoundUpAddresses" not in _data["settings"]:
+        _data["settings"]["excludeRoundUpAddresses"] = []
+    if "roundUpInstitutionPercent" not in _data["settings"]:
+        _data["settings"]["roundUpInstitutionPercent"] = 20
+    if "roundUpPercentByDept" not in _data["settings"]:
+        _data["settings"]["roundUpPercentByDept"] = {}
+    if "labelsLastPrinter" not in _data["settings"]:
+        _data["settings"]["labelsLastPrinter"] = ""
+    if "labelsPrintMargins" not in _data["settings"] or not isinstance(_data["settings"].get("labelsPrintMargins"), dict):
+        _data["settings"]["labelsPrintMargins"] = {
+            "top_cm": 2.0,
+            "right_cm": 2.0,
+            "bottom_cm": 0.0,
+            "left_cm": 0.0,
+        }
+    if "labelsTempAutoCleanup" not in _data["settings"]:
+        _data["settings"]["labelsTempAutoCleanup"] = True
     # Миграция: labelsFor, labelPrintMode, labelsEnabled для отделов/подотделов
     for dept in _data.get("departments", []):
         if dept.get("labelsFor") is None:
@@ -275,6 +339,20 @@ def set_setting(key: str, value: Any) -> None:
     _flush()
 
 
+def set_labels_generated(dept_key: str) -> None:
+    """Сохраняет дату и время последней генерации этикеток для отдела."""
+    from datetime import datetime
+    ts = datetime.now().strftime("%d.%m.%Y %H:%M")
+    history = dict(get_setting("labelsLastGenerated") or {})
+    history[dept_key] = ts
+    set_setting("labelsLastGenerated", history)
+
+
+def get_labels_generated_map() -> dict[str, str]:
+    """Возвращает {dept_key: 'dd.mm.yyyy HH:MM'} для всех отделов."""
+    return dict(get_setting("labelsLastGenerated") or {})
+
+
 def get_desktop_path() -> str:
     """Возвращает путь к рабочему столу (кэшируется)."""
     global _desktop_cache
@@ -397,6 +475,37 @@ def get_department_choices() -> list[tuple[str, str]]:
             if sk:
                 result.append((sk, f"  └ {sn}"))
     return result
+
+
+def get_department_products_map() -> dict[str, list[str]]:
+    """
+    Словарь {ключ отдела: [названия продуктов]}.
+    Только продукты с привязкой к отделу (deptKey).
+    """
+    _ensure_loaded()
+    result: dict[str, list[str]] = {}
+    products = _data.get("products", [])
+    for p in products:
+        name = p.get("name")
+        dept_key = p.get("deptKey")
+        if not name or not dept_key:
+            continue
+        result.setdefault(dept_key, []).append(name)
+    for key in result:
+        result[key].sort(key=str.lower)
+    return result
+
+
+def get_department_display_name(dept_key: str) -> str:
+    """Возвращает отображаемое имя отдела/подотдела по ключу."""
+    _ensure_loaded()
+    for dept in _data.get("departments", []):
+        if dept.get("key") == dept_key:
+            return dept.get("name") or dept_key
+        for sub in dept.get("subdepts", []):
+            if sub.get("key") == dept_key:
+                return sub.get("name") or dept_key
+    return dept_key
 
 
 def get_column_label(col: dict) -> str:
@@ -545,6 +654,78 @@ def save_template(
     return False
 
 
+# ─────────────────────────── Список учреждений по маршрутам ─────────────────
+
+def get_institution_key_from_address(address: str) -> str | None:
+    """
+    Ключ учреждения по адресу маршрута.
+    Только первые 3–4 цифры: 109/1 → 109, 1391/2 → 1391. Все адреса с одинаковыми
+    цифрами — подразделения одного учреждения. Если цифр нет — адрес целиком.
+    """
+    s = (address or "").strip()
+    if not s:
+        return None
+    m = _INSTITUTION_RE.match(s)
+    return m.group(1) if m else s
+
+
+def get_institution_list_from_routes(routes: Iterable[dict]) -> list[str]:
+    """
+    Список уникальных учреждений по маршрутам для округления.
+    Только первые 3–4 цифры: 109/1 и 109/2 → 109; 1391/1, 1391/2 → 1391.
+    Иначе — адрес целиком.
+    """
+    found: set[str] = set()
+    for r in routes or []:
+        key = get_institution_key_from_address(r.get("address") or "")
+        if key:
+            found.add(key)
+    return sorted(found)
+
+
+def get_institution_addresses_map(routes: Iterable[dict]) -> dict[str, list[str]]:
+    """
+    Словарь {код учреждения: [список адресов]}.
+    Адреса с одинаковыми первыми 3–4 цифрами группируются под одним учреждением.
+    """
+    result: dict[str, list[str]] = {}
+    seen: dict[str, set[str]] = {}
+    for r in routes or []:
+        addr = (r.get("address") or "").strip()
+        if not addr:
+            continue
+        key = get_institution_key_from_address(addr)
+        if not key:
+            continue
+        if key not in seen:
+            seen[key] = set()
+            result[key] = []
+        if addr not in seen[key]:
+            seen[key].add(addr)
+            result[key].append(addr)
+    for key in result:
+        result[key].sort()
+    return result
+
+
+def get_round_up_percent_for_dept(dept_key: str | None) -> float:
+    """
+    % от 1 шт для округления по учреждениям.
+    Если для отдела задан % в roundUpPercentByDept — возвращает его, иначе roundUpInstitutionPercent, по умолчанию 20.
+    """
+    if not dept_key:
+        pct = get_setting("roundUpInstitutionPercent")
+        return float(pct) if pct is not None else 20.0
+    by_dept = get_setting("roundUpPercentByDept") or {}
+    if isinstance(by_dept, dict) and dept_key in by_dept:
+        try:
+            return float(by_dept[dept_key])
+        except (ValueError, TypeError):
+            pass
+    pct = get_setting("roundUpInstitutionPercent")
+    return float(pct) if pct is not None else 20.0
+
+
 # ─────────────────────────── Последние маршруты ───────────────────────────
 
 def save_last_routes(
@@ -568,6 +749,16 @@ def save_last_routes(
         blob["routeCategory"] = route_category
     key = "last_main_routes" if file_type == "main" else "last_increase_routes"
     _data[key] = blob
+    # История: храним все сохранения (с ограничением, чтобы store не рос бесконечно).
+    history = list(_data.get("routes_history") or [])
+    history.append({
+        "fileType": file_type,
+        **copy.deepcopy(blob),
+    })
+    # Держим последние 60 записей истории.
+    if len(history) > 60:
+        history = history[-60:]
+    _data["routes_history"] = history
     _dirty = True
     _flush()
 
@@ -580,10 +771,24 @@ def get_last_routes(file_type: str) -> dict | None:
 
 
 def clear_last_routes() -> None:
-    """Очищает последние сохранённые маршруты (основной и довоз)."""
+    """Очищает последние сохранённые маршруты и историю (основной и довоз)."""
     global _dirty
     _ensure_loaded()
     _data["last_main_routes"] = None
     _data["last_increase_routes"] = None
+    _data["routes_history"] = []
     _dirty = True
     _flush()
+
+
+def get_routes_history(file_type: str | None = None) -> list[dict]:
+    """
+    Возвращает историю сохранений маршрутов (новые сверху).
+    file_type: "main" | "increase" | None (все).
+    """
+    _ensure_loaded()
+    history = list(_data.get("routes_history") or [])
+    if file_type in ("main", "increase"):
+        history = [h for h in history if h.get("fileType") == file_type]
+    history.reverse()
+    return history

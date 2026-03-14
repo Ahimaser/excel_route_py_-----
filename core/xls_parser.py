@@ -174,6 +174,8 @@ def parse_file(file_path: str) -> dict[str, Any]:
             name = _cell_str_cached(cell_cache, prod_row, 2).strip()
             if not name:
                 continue
+            if "итого" in name.lower():
+                continue
             unit    = _cell_str_cached(cell_cache, prod_row, 6)  # col6 = ед.изм.
             qty_str = _cell_str_cached(cell_cache, prod_row, 8)  # col8 = количество (9-й столбец Excel)
 

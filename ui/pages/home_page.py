@@ -410,6 +410,7 @@ class HomePage(QWidget):
         self.app_state["routes"] = routes
         self.app_state["uniqueProducts"] = unique_products
         self.app_state["filteredRoutes"] = [{**r, "excluded": False} for r in routes]
+        self.app_state["institutionList"] = data_store.get_institution_list_from_routes(routes)
         first_cat = routes[0].get("routeCategory", "ШК") if routes else "ШК"
         self.app_state["routeCategory"] = first_cat
 

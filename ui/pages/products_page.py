@@ -17,14 +17,13 @@ from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox,
-    QGroupBox, QMenu, QLineEdit, QComboBox,
+    QGroupBox, QLineEdit, QComboBox, QScrollArea, QFrame,
 )
 from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import QFont, QDrag
 
 from core import data_store
-from ui.styles import STYLESHEET
-from ui.widgets import hint_icon_button, make_combo_searchable
+from ui.widgets import hint_icon_button
 
 MIME_PRODUCT_NAME = "application/x-marshruty-product-name"
 
@@ -90,14 +89,21 @@ class ProductsDialog(QDialog):
         self.setMinimumSize(1200, 820)
         self.resize(1400, 920)
         self.setModal(True)
-        self.setStyleSheet(STYLESHEET)
         self._build_ui()
         self._refresh()
 
     # ─────────────────────────── UI ───────────────────────────────────────
 
     def _build_ui(self):
-        lay = QVBoxLayout(self)
+        # Страховочный импорт QComboBox (фильтр по отделу)
+        from PyQt6.QtWidgets import QComboBox
+        # Списки создаём сразу, чтобы _refresh() и слоты всегда могли на них опереться
+        self.left_box = QGroupBox("Без отдела")
+        self.list_new = LeftProductsList()
+        self.list_canonical = RightProductsList()
+
+        content = QWidget()
+        lay = QVBoxLayout(content)
         lay.setContentsMargins(20, 16, 20, 16)
         lay.setSpacing(14)
 
@@ -105,13 +111,14 @@ class ProductsDialog(QDialog):
         title_row.addWidget(QLabel("Справочник продуктов"))
         title_row.addWidget(hint_icon_button(
             self,
-            "Без отдела — связка вариантов. Алиасы: вариант → каноническое. ПКМ по продукту — «Кол-во в шт».",
+            "Без отдела — связка вариантов. Алиасы: вариант → каноническое.",
             "Инструкция — Справочник продуктов\n\n"
             "1. «Без отдела» (слева) — продукты без привязки к отделу. Появляется после обработки файлов.\n"
             "2. Свяжите вариант с каноническим: выберите слева и справа, нажмите «Связать» или перетащите элемент слева на правый.\n"
-            "3. «Привязанные к отделам» (справа) — канонические продукты. ПКМ по продукту → «Кол-во в шт» — настройка отображения в штуках.\n"
+            "3. «Привязанные к отделам» (справа) — канонические продукты.\n"
             "4. Таблица алиасов внизу: вариант написания → каноническое. Кнопка «✕» удаляет связку.\n"
-            "5. «Удалить выбранные» — удаление продуктов из справочника (по выбору в левом или правом списке).",
+            "5. «Удалить выбранные» — удаление продуктов из справочника (по выбору в левом или правом списке).\n"
+            "Настройки количества в штуках — в меню «Настройки» → «Настройки Количества».",
             "Инструкция",
         ))
         title_row.addStretch()
@@ -140,7 +147,6 @@ class ProductsDialog(QDialog):
         for key, name in data_store.get_department_choices():
             self.combo_dept_filter.addItem(name, key)
         self.combo_dept_filter.currentIndexChanged.connect(self._apply_filters)
-        make_combo_searchable(self.combo_dept_filter)
         filter_row.addWidget(self.combo_dept_filter)
         filter_row.addStretch()
         lay.addLayout(filter_row)
@@ -149,9 +155,7 @@ class ProductsDialog(QDialog):
         lists_row = QHBoxLayout()
         lists_row.setSpacing(12)
 
-        self.left_box = QGroupBox("Без отдела")
         left_lay = QVBoxLayout(self.left_box)
-        self.list_new = LeftProductsList()
         self.list_new.setMinimumHeight(400)
         self.list_new.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.list_new.setAlternatingRowColors(True)
@@ -174,7 +178,6 @@ class ProductsDialog(QDialog):
 
         right_box = QGroupBox("Привязанные к отделам (канонические)")
         right_lay = QVBoxLayout(right_box)
-        self.list_canonical = RightProductsList()
         self.list_canonical.setMinimumHeight(400)
         self.list_canonical.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self.list_canonical.setAlternatingRowColors(True)
@@ -189,6 +192,7 @@ class ProductsDialog(QDialog):
         btn_row.addStretch()
         self.btn_delete = QPushButton("Удалить выбранные из справочника")
         self.btn_delete.setObjectName("btnDanger")
+        self.btn_delete.setMinimumWidth(220)
         self.btn_delete.clicked.connect(self._on_delete_from_ref)
         btn_row.addWidget(self.btn_delete)
         lay.addLayout(btn_row)
@@ -221,6 +225,16 @@ class ProductsDialog(QDialog):
         btn_close.setObjectName("btnSecondary")
         btn_close.clicked.connect(self._on_close_clicked)
         lay.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignRight)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(content)
+        main_lay = QVBoxLayout(self)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.addWidget(scroll)
 
     # ─────────────────────────── Данные ───────────────────────────────────
 
@@ -379,34 +393,8 @@ class ProductsDialog(QDialog):
         self._refresh()
 
     def _on_list_context_menu(self, pos):
-        """Контекстное меню по ПКМ на элементе списка: «Кол-во в шт»."""
-        list_widget = self.sender()
-        if not isinstance(list_widget, QListWidget):
-            return
-        item = list_widget.itemAt(pos)
-        if not item:
-            return
-        product_name = item.data(Qt.ItemDataRole.UserRole)
-        if not product_name:
-            return
-        products = data_store.get_ref("products") or []
-        prod = next((p for p in products if p.get("name") == product_name), None)
-        unit = (prod.get("unit") or "").strip().lower() if prod else ""
-
-        menu = QMenu(self)
-        act_pcs = menu.addAction("Кол-во в шт")
-        action = menu.exec(list_widget.mapToGlobal(pos))
-        if action != act_pcs:
-            return
-        if unit == "шт":
-            QMessageBox.information(
-                self,
-                "Кол-во в шт",
-                "Настройка применяется только к продуктам с единицей измерения, отличной от «шт».",
-            )
-            return
-        from ui.pages.settings_dialog import open_pcs_for_product
-        open_pcs_for_product(self, product_name, on_saved=None)
+        """Контекстное меню по ПКМ на элементе списка (пока пусто — настройки Шт в «Настройки Количества»)."""
+        pass
 
     def refresh(self):
         self._refresh()

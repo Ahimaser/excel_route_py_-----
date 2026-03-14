@@ -18,12 +18,12 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QFileDialog, QFrame,
     QSplitter, QFormLayout, QComboBox, QDoubleSpinBox, QLineEdit, QGroupBox,
+    QScrollArea, QStyle,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
 
 from core import data_store
-from ui.styles import STYLESHEET
-from ui.widgets import hint_icon_button, make_combo_searchable
+from ui.widgets import hint_icon_button, ToggleSwitch
 from ui.pages.label_template_editor import open_label_template_editor
 
 
@@ -38,15 +38,14 @@ class LabelsSettingsDialog(QDialog):
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setSizeGripEnabled(True)
         self._updating = False
-        self.setStyleSheet(STYLESHEET)
         self._build_ui()
         self._refresh_tree()
         self.tree.currentItemChanged.connect(self._on_selection_changed)
-        self.tree.itemChanged.connect(self._on_tree_item_changed)
         self._current_node_obj = None
 
     def _build_ui(self):
-        lay = QVBoxLayout(self)
+        content = QWidget()
+        lay = QVBoxLayout(content)
         lay.setContentsMargins(20, 16, 20, 16)
         lay.setSpacing(12)
         title_row = QHBoxLayout()
@@ -77,6 +76,7 @@ class LabelsSettingsDialog(QDialog):
         left_lay.addWidget(self.tree)
         self.btn_label_rules = QPushButton("Условия этикеток для отдела…")
         self.btn_label_rules.setObjectName("btnSecondary")
+        self.btn_label_rules.setMinimumWidth(220)
         self.btn_label_rules.setEnabled(False)
         self.btn_label_rules.clicked.connect(self._on_label_rules)
         left_lay.addWidget(self.btn_label_rules)
@@ -119,9 +119,18 @@ class LabelsSettingsDialog(QDialog):
         btn_close.clicked.connect(self.accept)
         lay.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignRight)
 
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(content)
+        main_lay = QVBoxLayout(self)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.addWidget(scroll)
+
     def _refresh_tree(self):
         self._updating = True
-        self.tree.blockSignals(True)
         try:
             self.tree.clear()
             depts = data_store.get_ref("departments") or []
@@ -130,30 +139,40 @@ class LabelsSettingsDialog(QDialog):
                 has_depts = True
                 dept_item = QTreeWidgetItem([dept.get("name", ""), ""])
                 dept_item.setData(0, Qt.ItemDataRole.UserRole, ("dept", dept))
-                dept_item.setCheckState(1, Qt.CheckState.Checked if dept.get("labelsEnabled", True) else Qt.CheckState.Unchecked)
+                dept_item.setFlags(dept_item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
                 for sub in sorted((s for s in dept.get("subdepts", []) if isinstance(s, dict) and s.get("name")), key=lambda s: (s.get("name") or "").lower()):
                     sub_item = QTreeWidgetItem([sub.get("name", ""), ""])
                     sub_item.setData(0, Qt.ItemDataRole.UserRole, ("subdept", sub))
-                    sub_item.setCheckState(1, Qt.CheckState.Checked if sub.get("labelsEnabled", True) else Qt.CheckState.Unchecked)
+                    sub_item.setFlags(sub_item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
                     dept_item.addChild(sub_item)
                 self.tree.addTopLevelItem(dept_item)
+                self._attach_toggle(dept_item, dept)
+                for i in range(dept_item.childCount()):
+                    child = dept_item.child(i)
+                    child_data = child.data(0, Qt.ItemDataRole.UserRole)
+                    if child_data and isinstance(child_data, (tuple, list)) and len(child_data) == 2:
+                        self._attach_toggle(child, child_data[1])
                 dept_item.setExpanded(True)
             self.lbl_no_depts.setVisible(not has_depts)
         finally:
-            self.tree.blockSignals(False)
             self._updating = False
 
-    def _on_tree_item_changed(self, item: QTreeWidgetItem, column: int):
-        if self._updating or column != 1:
+    def _attach_toggle(self, item: QTreeWidgetItem, obj: dict) -> None:
+        """Создаёт ToggleSwitch в колонке 1 дерева для объекта dept/subdept."""
+        toggle = ToggleSwitch()
+        toggle.setChecked(obj.get("labelsEnabled", True))
+        toggle.stateChanged.connect(lambda state, o=obj: self._on_labels_toggle(o, state))
+        container = QWidget()
+        lay = QHBoxLayout(container)
+        lay.setContentsMargins(8, 2, 8, 2)
+        lay.addWidget(toggle)
+        lay.addStretch()
+        self.tree.setItemWidget(item, 1, container)
+
+    def _on_labels_toggle(self, obj: dict, state: int) -> None:
+        if self._updating:
             return
-        data = item.data(0, Qt.ItemDataRole.UserRole)
-        if not data or not isinstance(data, (tuple, list)) or len(data) != 2:
-            return
-        _, obj = data
-        if not isinstance(obj, dict):
-            return
-        enabled = item.checkState(1) == Qt.CheckState.Checked
-        obj["labelsEnabled"] = enabled
+        obj["labelsEnabled"] = (state == 2)
         depts = data_store.get_ref("departments")
         if depts:
             data_store.set_key("departments", depts)
@@ -212,11 +231,19 @@ class LabelsSettingsDialog(QDialog):
             self.products_table.setItem(row, 0, QTableWidgetItem(f"{pname} ({prod.get('unit', '')})"))
             tpl = prod.get("labelTemplatePath") or ""
             lbl = QLabel(os.path.basename(tpl) if tpl else "—")
-            btn = QPushButton("…")
-            btn.setFixedWidth(32)
-            btn_clear = QPushButton("✕")
-            btn_clear.setFixedWidth(28)
+            btn = QPushButton()
+            btn.setObjectName("btnIcon")
+            btn.setFixedWidth(36)
+            btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
+            btn.setIconSize(QSize(18, 18))
+            btn.setToolTip("Выбрать файл шаблона XLS")
+            btn_clear = QPushButton()
+            btn_clear.setFixedWidth(36)
             btn_clear.setObjectName("btnIconDanger")
+            trash_icon = getattr(QStyle.StandardPixmap, "SP_TrashIcon", QStyle.StandardPixmap.SP_DialogDiscardButton)
+            btn_clear.setIcon(self.style().standardIcon(trash_icon))
+            btn_clear.setIconSize(QSize(18, 18))
+            btn_clear.setToolTip("Снять шаблон")
             btn_clear.setVisible(bool(tpl))
             btn.clicked.connect(lambda checked=False, n=pname, l=lbl, b=btn_clear: self._on_select_template(n, l, b))
             btn_clear.clicked.connect(lambda checked=False, n=pname, l=lbl, b=btn_clear: self._on_clear_template(n, l, b))
@@ -306,7 +333,6 @@ class LabelRulesDialog(QDialog):
         self.node_obj = node_obj
         self.setWindowTitle(f"Условия этикеток: {node_obj.get('name', '')}")
         self.setMinimumWidth(420)
-        self.setStyleSheet(STYLESHEET)
         lay = QVBoxLayout(self)
 
         self.combo_mode = QComboBox()
@@ -319,7 +345,6 @@ class LabelRulesDialog(QDialog):
         idx = self.combo_mode.findData(mode)
         if idx >= 0:
             self.combo_mode.setCurrentIndex(idx)
-        make_combo_searchable(self.combo_mode)
         self.combo_mode.currentIndexChanged.connect(self._on_mode_changed)
         form = QFormLayout()
         form.addRow("Режим:", self.combo_mode)

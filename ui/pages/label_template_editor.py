@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QMimeData
 
 from core import data_store, excel_generator
-from ui.styles import STYLESHEET
 
 LABEL_FIELDS = [
     ("routeNumber", "№ маршрута", "12"),
@@ -20,6 +19,15 @@ LABEL_FIELDS = [
     ("quantity", "Количество", "3.5"),
 ]
 MIME_LABEL_FIELD = "application/x-label-field"
+
+
+def _default_layout(data_row: int) -> list[dict]:
+    """Авто-расстановка: маршрут → кол.0, дом → кол.1, количество → кол.2 в строке данных."""
+    return [
+        {"row": data_row, "col": 0, "field": "routeNumber"},
+        {"row": data_row, "col": 1, "field": "house"},
+        {"row": data_row, "col": 2, "field": "quantity"},
+    ]
 
 
 class LabelTemplatePreviewTable(QTableWidget):
@@ -163,19 +171,23 @@ def open_label_template_editor(product_name: str, parent=None) -> bool:
     existing = prod.get("labelLayout") or []
     if not isinstance(existing, list):
         existing = []
+    # Авто-расстановка при первом открытии (нет сохранённого layout)
+    data_row = template_rows  # индекс строки «Данные» в таблице
+    if not existing:
+        existing = _default_layout(data_row)
 
     dlg = QDialog(parent)
     dlg.setWindowTitle(f"Предпросмотр шаблона этикетки: {product_name}")
     dlg.setMinimumSize(800, 520)
     dlg.resize(900, 560)
-    dlg.setStyleSheet(STYLESHEET)
     root = QVBoxLayout(dlg)
     root.setSpacing(12)
 
     hint = QLabel(
-        "Отображаются все строки и столбцы этикетки из файла шаблона. "
-        "Перетащите элементы (№ маршрута, дом/строение, количество) в ячейки строки «Данные» или шаблона — так задаётся расстановка для создания файла с этикетками. "
-        "Маршруты в файле: по возрастанию номера, сначала все маршруты одного адреса, затем следующего."
+        "Строка «Данные» — куда подставляются значения из маршрутов. "
+        "По умолчанию: № маршрута → столбец A, дом → B, количество → C. "
+        "Перетащите поля из левого списка в нужную ячейку, чтобы изменить расстановку. "
+        "Кнопка «По умолчанию» восстанавливает авто-расстановку."
     )
     hint.setWordWrap(True)
     hint.setObjectName("stepLabel")
@@ -213,6 +225,11 @@ def open_label_template_editor(product_name: str, parent=None) -> bool:
     root.addWidget(splitter)
 
     btn_row = QHBoxLayout()
+    btn_reset = QPushButton("По умолчанию")
+    btn_reset.setObjectName("btnSecondary")
+    btn_reset.setToolTip("Восстановить авто-расстановку: маршрут→A, дом→B, количество→C")
+    btn_reset.clicked.connect(lambda: table.set_placements(_default_layout(data_row)))
+    btn_row.addWidget(btn_reset)
     btn_row.addStretch()
     btn_cancel = QPushButton("Отмена")
     btn_cancel.setObjectName("btnSecondary")

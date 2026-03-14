@@ -14,8 +14,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-from ui.styles import STYLESHEET
-from ui.widgets import hint_icon_button, make_combo_searchable
+from ui.widgets import hint_icon_button
 
 ACTION_NEW = "new"
 ACTION_ALIAS_PREFIX = "alias:"
@@ -44,7 +43,6 @@ class NewProductsDialog(QDialog):
         self._items = items
         self._all_canonical = list(all_canonical or [])
         self._combos: list[QComboBox] = []
-        self.setStyleSheet(STYLESHEET)
         self._build_ui()
 
     def _build_ui(self):
@@ -83,7 +81,6 @@ class NewProductsDialog(QDialog):
                 combo.insertSeparator(1)
                 for c in ordered_canonical:
                     combo.addItem(f"Дубликат: {c}", ACTION_ALIAS_PREFIX + c)
-            make_combo_searchable(combo)
             self._combos.append(combo)
             self.table.setCellWidget(row, 1, combo)
         lay.addWidget(self.table)

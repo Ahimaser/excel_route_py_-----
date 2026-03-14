@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTableView, QLineEdit, QApplication,
     QComboBox, QHeaderView, QAbstractItemView,
-    QMessageBox, QFileDialog, QProgressBar, QMenu
+    QMessageBox, QFileDialog, QProgressBar, QMenu, QScrollArea
 )
 from PyQt6.QtCore import (
     Qt, pyqtSignal, QThread, QObject, QTimer, QEvent,
@@ -30,8 +30,8 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QFont, QColor, QBrush, QWheelEvent, QShortcut, QKeySequence
 
 from core import data_store, excel_generator
+from ui.excel_safe_open import open_excel_file_safely
 from core.xls_parser import ROUTE_SIGN
-from ui.widgets import make_combo_searchable
 
 log = logging.getLogger("preview_general")
 
@@ -223,14 +223,37 @@ def _build_rows(routes: list, prod_settings: dict,
             display_qty = qty
         if ps.get("showPcs") and ps.get("pcsPerUnit", 0) > 0:
             route_cat = route.get("routeCategory") or "ШК"
-            round_up = (
-                ps.get("roundUpСД") if "roundUpСД" in ps else ps.get("roundUp", True)
-                if route_cat == "СД"
-                else ps.get("roundUpШК") if "roundUpШК" in ps else ps.get("roundUp", True)
-            )
-            pcs = excel_generator.calc_pcs(
-                display_qty, ps["pcsPerUnit"], round_up
-            )
+            addr = route.get("address", "")
+            force_round_up = excel_generator.is_always_round_up_institution(addr)
+            pcu = float(ps["pcsPerUnit"])
+            if force_round_up:
+                pct = excel_generator.get_institution_round_percent(ps.get("deptKey"))
+                round_tail = pcu * (pct / 100.0)
+                pcs = excel_generator.calc_pcs_tail(display_qty, pcu, round_tail)
+            else:
+                round_tail = (
+                    ps.get("roundTailFromСД") if route_cat == "СД" else ps.get("roundTailFromШК")
+                )
+                if round_tail is not None:
+                    pcs = excel_generator.calc_pcs_tail(
+                        display_qty, pcu, float(round_tail)
+                    )
+                else:
+                    round_up = (
+                        ps.get("roundUpСД") if "roundUpСД" in ps else ps.get("roundUp", True)
+                        if route_cat == "СД"
+                        else ps.get("roundUpШК") if "roundUpШК" in ps else ps.get("roundUp", True)
+                    )
+                    pcs = excel_generator.calc_pcs(display_qty, pcu, bool(round_up))
+            tail = prod.get("pcsTail")
+            if tail is not None and (prod.get("unit") or ""):
+                try:
+                    tval = float(tail)
+                    if tval > 1e-9:
+                        ttxt = str(int(tval)) if abs(tval - round(tval)) < 1e-9 else f"{tval:.3f}".rstrip("0").rstrip(".")
+                        return f"{display_qty} / {pcs} шт + {ttxt} {prod.get('unit', '')}"
+                except (TypeError, ValueError):
+                    pass
             return f"{display_qty} / {pcs} шт"
         return str(display_qty)
 
@@ -298,7 +321,7 @@ class GenerateWorker(QObject):
     finished = pyqtSignal(str)
     error    = pyqtSignal(str)
 
-    def __init__(self, routes: list, file_type: str, save_path: str, prod_map: dict):
+    def __init__(self, routes: list, file_type: str, save_path: str, prod_map: dict, sort_asc: bool = True):
         super().__init__()
         # Делаем глубокую копию маршрутов чтобы избежать конкурентного доступа
         import copy
@@ -306,13 +329,37 @@ class GenerateWorker(QObject):
         self.file_type = file_type
         self.save_path = save_path
         self.prod_map  = prod_map
+        self.sort_asc  = sort_asc
 
     def run(self) -> None:
         try:
             path = excel_generator.generate_general_routes(
-                self.routes, self.file_type, self.save_path, self.prod_map
+                self.routes, self.file_type, self.save_path, self.prod_map, self.sort_asc
             )
             self.finished.emit(path)
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
+class TemplateLabelsWorker(QObject):
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, routes: list, out_dir: str, file_type: str, products_ref: list, departments_ref: list):
+        super().__init__()
+        import copy
+        self.routes = copy.deepcopy(routes)
+        self.out_dir = out_dir
+        self.file_type = file_type
+        self.products_ref = products_ref
+        self.departments_ref = departments_ref
+
+    def run(self) -> None:
+        try:
+            created = excel_generator.generate_labels_from_templates(
+                self.routes, self.out_dir, self.file_type, self.products_ref, self.departments_ref
+            )
+            self.finished.emit(created)
         except Exception as exc:
             self.error.emit(str(exc))
 
@@ -479,7 +526,9 @@ class PreviewGeneralPage(QWidget):
         self._search_text    = ""
         self._rendering      = False
         self._render_pending = False
-        self._sort_asc       = False  # False = убывание (по умолчанию)
+        self._sort_asc       = True   # True = по возрастанию (по умолчанию)
+        self._column_widths  = None   # пользовательские ширины столбцов в текущей сессии
+        self._column_widths  = None   # пользовательские ширины столбцов в текущей сессии
 
         self._render_thread: QThread | None = None
         self._render_worker: RenderWorker | None = None
@@ -491,12 +540,23 @@ class PreviewGeneralPage(QWidget):
 
         self._build_ui()
 
+        # После построения UI разрешаем пользователю менять ширину столбцов мышью (как в Excel)
+        try:
+            hdr = self.table.horizontalHeader()
+            for col in range(self._model.columnCount()):
+                hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
+            hdr.sectionResized.connect(self._on_section_resized)
+        except Exception:
+            pass
+
     # ─────────────────────────── Построение UI ────────────────────────────
 
     def _build_ui(self) -> None:
-        root_lay = QVBoxLayout(self)
-        root_lay.setContentsMargins(28, 20, 28, 20)
-        root_lay.setSpacing(16)
+        content = QWidget()
+        content.setMinimumHeight(680)
+        root_lay = QVBoxLayout(content)
+        root_lay.setContentsMargins(32, 24, 32, 24)
+        root_lay.setSpacing(20)
 
         # Заголовок
         h_row = QHBoxLayout()
@@ -509,6 +569,7 @@ class PreviewGeneralPage(QWidget):
         btn_home.clicked.connect(self.go_home.emit)
         h_row.addWidget(btn_home)
         self.btn_dept_preview = QPushButton("Маршруты по отделам")
+        self.btn_dept_preview.setMinimumWidth(160)
         self.btn_dept_preview.setObjectName("btnSecondary")
         self.btn_dept_preview.clicked.connect(self.go_dept_preview.emit)
         self.btn_dept_preview.setEnabled(False)
@@ -534,6 +595,7 @@ class PreviewGeneralPage(QWidget):
         h_row.addWidget(self.lbl_font_size)
 
         btn_settings = QPushButton("Справочник продуктов")
+        btn_settings.setMinimumWidth(160)
         btn_settings.setObjectName("btnSecondary")
         btn_settings.clicked.connect(self.go_settings.emit)
         h_row.addWidget(btn_settings)
@@ -544,8 +606,8 @@ class PreviewGeneralPage(QWidget):
         filter_card = QFrame()
         filter_card.setObjectName("card")
         filter_lay = QHBoxLayout(filter_card)
-        filter_lay.setContentsMargins(16, 14, 16, 14)
-        filter_lay.setSpacing(12)
+        filter_lay.setContentsMargins(20, 16, 20, 16)
+        filter_lay.setSpacing(16)
 
         self.le_search = QLineEdit()
         self.le_search.setPlaceholderText("Поиск по адресу или номеру маршрута...")
@@ -560,7 +622,6 @@ class PreviewGeneralPage(QWidget):
         self.combo_product = QComboBox()
         self.combo_product.setMinimumWidth(180)
         self.combo_product.addItem("Все продукты", "")
-        make_combo_searchable(self.combo_product)
         self.combo_product.currentIndexChanged.connect(self._on_product_filter_changed)
         filter_lay.addWidget(self.combo_product)
 
@@ -571,12 +632,11 @@ class PreviewGeneralPage(QWidget):
         self.combo_display.addItem("Полностью",        _DISPLAY_FULL)
         self.combo_display.addItem("Только продукт",   _DISPLAY_PRODUCT)
         self.combo_display.setCurrentIndex(0)  # по умолчанию — только № и адрес
-        make_combo_searchable(self.combo_display)
         self.combo_display.currentIndexChanged.connect(self._on_display_changed)
         filter_lay.addWidget(self.combo_display)
 
         # Кнопка сортировки
-        self.btn_sort = QPushButton("↓ По убыванию")
+        self.btn_sort = QPushButton("↑ По возрастанию")
         self.btn_sort.setObjectName("btnSecondary")
         self.btn_sort.clicked.connect(self._on_sort_toggle)
         filter_lay.addWidget(self.btn_sort)
@@ -601,10 +661,12 @@ class PreviewGeneralPage(QWidget):
         self.table.setModel(self._model)
         hdr = self.table.horizontalHeader()
         hdr.setMinimumSectionSize(90)
+        # Номер маршрута — по содержимому, адрес — чуть уже, количество — шире
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        hdr.resizeSection(1, 260)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
@@ -641,16 +703,11 @@ class PreviewGeneralPage(QWidget):
         bottom_row.addWidget(self.btn_clear)
 
         self.btn_generate = QPushButton("Создать файл «Общие маршруты»")
+        self.btn_generate.setMinimumWidth(200)
         self.btn_generate.setObjectName("btnPrimary")
         self.btn_generate.setFixedHeight(40)
         self.btn_generate.clicked.connect(self._on_generate)
         bottom_row.addWidget(self.btn_generate)
-
-        self.btn_labels = QPushButton("Этикетки из шаблонов (XLS)")
-        self.btn_labels.setObjectName("btnSecondary")
-        self.btn_labels.setFixedHeight(40)
-        self.btn_labels.clicked.connect(self._on_labels_from_templates)
-        bottom_row.addWidget(self.btn_labels)
 
         root_lay.addLayout(bottom_row)
 
@@ -658,6 +715,16 @@ class PreviewGeneralPage(QWidget):
         self.progress.setRange(0, 0)
         self.progress.setVisible(False)
         root_lay.addWidget(self.progress)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(content)
+        main_lay = QVBoxLayout(self)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.addWidget(scroll)
 
         shortcut_escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         shortcut_escape.activated.connect(self._on_escape_key)
@@ -750,7 +817,22 @@ class PreviewGeneralPage(QWidget):
 
         # Обновляем виртуальную модель -- мгновенно, без создания виджетов
         self._model.set_rows(rows_data)
-        self.table.resizeColumnsToContents()
+
+        # Стартовые ширины столбцов — один раз; далее сохраняем пользовательские
+        if self._column_widths is None:
+            self.table.resizeColumnsToContents()
+            # Немного расширим колонку с адресом, если она есть
+            if self._model.columnCount() > 1:
+                addr_w = self.table.columnWidth(1)
+                self.table.setColumnWidth(1, max(addr_w, 260))
+            self._column_widths = [
+                self.table.columnWidth(i) for i in range(self._model.columnCount())
+            ]
+        else:
+            # Восстанавливаем пользовательские ширины
+            for i, w in enumerate(self._column_widths):
+                if i < self._model.columnCount() and w > 0:
+                    self.table.setColumnWidth(i, w)
 
         # Если панель открыта, обновляем адрес и прокручиваем к изменённому маршруту
         if current_route_ref is not None and self.edit_panel.isVisible():
@@ -780,6 +862,22 @@ class PreviewGeneralPage(QWidget):
         if self._render_pending:
             log.debug("render_pending=True, запускаем ещё раз")
             self._start_render_worker()
+
+    def _on_section_resized(self, logical_index: int, _old: int, new: int) -> None:
+        """Запоминаем ширины столбцов при ручном изменении пользователем."""
+        if logical_index < 0 or new <= 0:
+            return
+        if self._column_widths is None:
+            self._column_widths = [
+                self.table.columnWidth(i) for i in range(self._model.columnCount())
+            ]
+            return
+        if logical_index >= len(self._column_widths):
+            self._column_widths.extend(
+                self.table.columnWidth(i)
+                for i in range(len(self._column_widths), self._model.columnCount())
+            )
+        self._column_widths[logical_index] = new
 
     # ─────────────────────────── Фильтры ──────────────────────────────────
 
@@ -818,9 +916,9 @@ class PreviewGeneralPage(QWidget):
         self._search_text    = ""
         self._filter_product = ""
         self._display_mode   = _DISPLAY_ADDR
-        self._sort_asc       = False
-        self.btn_sort.setText("↓ По убыванию")
-        self.app_state["sortAsc"] = False
+        self._sort_asc       = True
+        self.btn_sort.setText("↑ По возрастанию")
+        self.app_state["sortAsc"] = True
         self.edit_panel.clear()
         self._render_table()
 
@@ -920,6 +1018,7 @@ class PreviewGeneralPage(QWidget):
         self.app_state.update({
             "filePaths": [], "routes": [], "uniqueProducts": [],
             "filteredRoutes": [], "routeCategory": "ШК",
+            "institutionList": [],
         })
         self.go_clear_routes.emit()
 
@@ -1046,38 +1145,26 @@ class PreviewGeneralPage(QWidget):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        tomorrow     = datetime.now() + timedelta(days=1)
-        date_str     = tomorrow.strftime("%d.%m.%Y")
         file_type    = self.app_state.get("fileType", "main")
-        type_label   = "ОСН" if file_type == "main" else "УВ"
-        default_name = f"Маршруты общие {date_str} {type_label}.xls"
-
-        save_dir  = self.app_state.get("saveDir") or data_store.get_desktop_path()
-        save_path, _ = QFileDialog.getSaveFileName(
-            self, "Сохранить файл",
-            os.path.join(save_dir, default_name),
-            "Excel 97-2003 (*.xls)"
+        base_dir = self.app_state.get("saveDir") or data_store.get_desktop_path()
+        chosen_base = QFileDialog.getExistingDirectory(
+            self,
+            "Выберите папку для сохранения маршрутов",
+            base_dir,
         )
-        if not save_path:
+        if not chosen_base:
             return
-        if not save_path.lower().endswith(".xls"):
-            save_path += ".xls"
-
-        if os.path.exists(save_path):
-            reply = QMessageBox.question(
-                self, "Файл существует",
-                f"Файл уже существует:\n{save_path}\n\nПерезаписать?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
+        self.app_state["saveDir"] = chosen_base
+        date_str = excel_generator.get_routes_date_str()
+        save_path = excel_generator.get_general_routes_path(chosen_base, file_type, date_str)
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
         prod_map = data_store.get_products_map()
         self.btn_generate.setEnabled(False)
         self.progress.setVisible(True)
 
         self._gen_thread = QThread(self)
-        self._gen_worker = GenerateWorker(active_routes, file_type, save_path, prod_map)
+        self._gen_worker = GenerateWorker(active_routes, file_type, save_path, prod_map, self._sort_asc)
         self._gen_worker.moveToThread(self._gen_thread)
         self._gen_thread.started.connect(self._gen_worker.run)
         self._gen_worker.finished.connect(self._on_gen_done)
@@ -1100,6 +1187,20 @@ class PreviewGeneralPage(QWidget):
             self.app_state.get("filteredRoutes", []),
             route_category=self.app_state.get("routeCategory"),
         )
+        # Обновляем отчет по шт для папки дня.
+        try:
+            day_dir = os.path.dirname(os.path.dirname(path))
+            report_path = os.path.join(day_dir, f"Отчет Шт {excel_generator.get_routes_date_str()}.xls")
+            main_blob = data_store.get_last_routes("main") or {}
+            inc_blob = data_store.get_last_routes("increase") or {}
+            excel_generator.generate_pcs_compare_report(
+                report_path,
+                main_blob.get("filteredRoutes") or main_blob.get("routes") or [],
+                inc_blob.get("filteredRoutes") or inc_blob.get("routes") or [],
+                data_store.get_ref("products") or [],
+            )
+        except Exception as exc:
+            log.warning("Не удалось обновить отчет по Шт: %s", exc)
         reply = QMessageBox.information(
             self, "Готово",
             f"Файл успешно создан:\n{path}\n\n"
@@ -1135,14 +1236,44 @@ class PreviewGeneralPage(QWidget):
         os.makedirs(out_dir, exist_ok=True)
         file_type = self.app_state.get("fileType", "main")
         departments_ref = data_store.get_ref("departments") or []
-        try:
-            created = excel_generator.generate_labels_from_templates(
-                routes, out_dir, file_type, products_ref, departments_ref
+        self._labels_out_dir = out_dir
+        self.btn_labels.setEnabled(False)
+        self.progress.setVisible(True)
+        self._labels_thread = QThread(self)
+        self._labels_worker = TemplateLabelsWorker(
+            routes, out_dir, file_type, products_ref, departments_ref
+        )
+        self._labels_worker.moveToThread(self._labels_thread)
+        self._labels_thread.started.connect(self._labels_worker.run)
+        self._labels_worker.finished.connect(self._on_labels_templates_done)
+        self._labels_worker.error.connect(self._on_labels_templates_error)
+        self._labels_worker.finished.connect(self._labels_thread.quit)
+        self._labels_worker.error.connect(self._labels_thread.quit)
+        self._labels_thread.finished.connect(self._labels_worker.deleteLater)
+        self._labels_thread.finished.connect(self._labels_thread.deleteLater)
+        self._labels_thread.start()
+
+    def _on_labels_templates_done(self, created: list[str]) -> None:
+        self.progress.setVisible(False)
+        self.btn_labels.setEnabled(True)
+        if created:
+            QMessageBox.information(self, "Готово", f"Создано файлов: {len(created)}\n\n{self._labels_out_dir}")
+            reply = QMessageBox.question(
+                self,
+                "Открыть безопасно",
+                "Открыть первый созданный файл через безопасную локальную копию?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
             )
-            if created:
-                QMessageBox.information(self, "Готово", f"Создано файлов: {len(created)}\n\n{out_dir}")
-            else:
-                QMessageBox.information(self, "Нет файлов", "Нет этикеток для создания.")
-        except Exception as e:
-            log.exception("labels")
-            QMessageBox.critical(self, "Ошибка", str(e))
+            if reply == QMessageBox.StandardButton.Yes:
+                try:
+                    open_excel_file_safely(created[0])
+                except Exception as exc:
+                    QMessageBox.warning(self, "Не удалось открыть файл", str(exc))
+        else:
+            QMessageBox.information(self, "Нет файлов", "Нет этикеток для создания.")
+
+    def _on_labels_templates_error(self, msg: str) -> None:
+        self.progress.setVisible(False)
+        self.btn_labels.setEnabled(True)
+        QMessageBox.critical(self, "Ошибка", msg)

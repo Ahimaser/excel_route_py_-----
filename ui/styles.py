@@ -1,29 +1,31 @@
 """
-styles.py — Стили в духе окна Excel: лента-вкладки, сетка таблиц, нейтральная палитра.
+styles.py — Стили интерфейса с акцентом в стиле stail blue theme.
+Основа остаётся «офисной», но палитра и элементы ближе к современному web‑UI.
 """
-# Палитра Excel-подобного интерфейса
-_BG_MAIN = "#FFFFFF"           # Фон листа
-_BG_SURFACE = "#F3F3F3"        # Фон ленты, панелей
+
+# Палитра в духе stail blue_theme / Material
+_BG_MAIN = "#F5F7FB"           # Общий фон (светлый, слегка голубоватый)
+_BG_SURFACE = "#FFFFFF"        # Фон панелей, карточек
 _BG_CARD = "#FFFFFF"           # Карточки
-_RIBBON_BG = "#F3F3F3"         # Лента (вкладки)
-_BORDER = "#D4D4D4"            # Сетка, границы (Excel grid)
-_BORDER_LIGHT = "#E0E0E0"      # Светлые границы
-_ACCENT = "#217346"            # Акцент Excel-зелёный (выделение, кнопки)
-_ACCENT_HOVER = "#1E6B3E"      # Hover
-_ACCENT_LIGHT = "#E2EFDA"      # Фон выделения (светло-зелёный)
-_ACCENT_RIpple = "#C6E0B4"     # Hover выделения
-_EXCEL_SELECT = "#4472C4"      # Синий выбор (как в Excel)
-_EXCEL_SELECT_BG = "#D6DCE4"   # Фон выбранной строки
-_TEXT = "#000000"              # Основной текст
-_TEXT_MUTED = "#5B5B5B"        # Вторичный текст
-_TEXT_LIGHT = "#7F7F7F"        # Приглушённый
-_SUCCESS = "#217346"
-_DANGER = "#C00000"            # Ошибка (Excel red)
-_DANGER_LIGHT = "#FFE6E6"
-_WARNING = "#FFC000"
-_TABLE_HEADER_BG = "#D6D6D6"   # Заголовок таблицы (Excel)
-_STATUS_BAR_BG = "#E7E6E6"    # Строка состояния Excel
-_MENU_BAR_BG = "#F3F3F3"       # Меню как в Excel — светлое
+_RIBBON_BG = "#FFFFFF"         # Верхняя панель / лента
+_BORDER = "#D6DFEA"            # Границы, разделители
+_BORDER_LIGHT = "#E3E9F3"      # Светлые границы
+_ACCENT = "#0085DB"            # Основной синий (var(--mat-sys-primary))
+_ACCENT_HOVER = "#006FB5"      # Hover для синей кнопки
+_ACCENT_LIGHT = "rgba(0, 133, 219, 0.10)"  # Фон выделения / бейджей
+_ACCENT_RIpple = "rgba(0, 133, 219, 0.18)" # Ripple / нажатие
+_EXCEL_SELECT = "#0085DB"      # Цвет выделения строк
+_EXCEL_SELECT_BG = "rgba(0, 133, 219, 0.14)"
+_TEXT = "#111827"              # Основной текст (почти чёрный)
+_TEXT_MUTED = "#6B7280"        # Вторичный текст (серый)
+_TEXT_LIGHT = "#9CA3AF"        # Приглушённый
+_SUCCESS = "#4BD08B"           # Успех (как в stail)
+_DANGER = "#DC2626"            # Ошибка
+_DANGER_LIGHT = "rgba(220, 38, 38, 0.10)"
+_WARNING = "#F8C076"
+_TABLE_HEADER_BG = "#EEF2FF"   # Заголовок таблицы со слабым синим тоном
+_STATUS_BAR_BG = "#E5E7EB"     # Строка состояния
+_MENU_BAR_BG = "#FFFFFF"       # Светлая верхняя полоса
 
 # Публичные константы для инлайн-стилей
 ACCENT = _ACCENT
@@ -143,9 +145,9 @@ QPushButton {{
     font-size: 11pt;
     font-weight: 400;
     border-radius: 2px;
-    padding: 4px 12px;
-    min-height: 26px;
-    min-width: 72px;
+    padding: 6px 14px;
+    min-height: 28px;
+    min-width: 80px;
 }}
 QPushButton#btnPrimary {{
     background-color: {_ACCENT};
@@ -279,6 +281,7 @@ QLineEdit, QTextEdit {{
     color: {_TEXT};
     selection-background-color: {_EXCEL_SELECT};
     selection-color: #FFFFFF;
+    min-width: 8em;
 }}
 QLineEdit:focus, QTextEdit:focus {{
     border: 1px solid {_ACCENT};
@@ -302,9 +305,9 @@ QTableWidget {{
 QTableView {{
     alternate-background-color: #FAFAFA;
 }}
-QTableWidget::item, QTableView {{
-    padding: 4px 8px;
-    min-height: 22px;
+QTableWidget::item, QTableView::item {{
+    padding: 10px 14px;
+    min-height: 28px;
 }}
 QTableWidget::item:selected, QTableView::item:selected {{
     background-color: {_EXCEL_SELECT_BG};
@@ -318,7 +321,7 @@ QHeaderView::section {{
     color: {_TEXT};
     font-weight: 600;
     font-size: 11pt;
-    padding: 6px 8px;
+    padding: 10px 14px;
     border: 1px solid {_BORDER};
 }}
 
@@ -345,12 +348,16 @@ QComboBox::drop-down {{
     background: transparent;
 }}
 QComboBox QAbstractItemView {{
+    min-width: 220px;
     border: 1px solid {_BORDER};
     border-radius: 8px;
     background: {_BG_CARD};
     selection-background-color: {_ACCENT_LIGHT};
     selection-color: {_TEXT};
     padding: 8px;
+}}
+QComboBox QAbstractItemView::item {{
+    min-height: 28px;
 }}
 
 /* ─── CheckBox, Radio (Material) ─── */
@@ -360,26 +367,31 @@ QCheckBox, QRadioButton {{
     spacing: 12px;
 }}
 QCheckBox::indicator {{
-    width: 20px;
-    height: 20px;
-    border: 2px solid {_TEXT_LIGHT};
-    border-radius: 4px;
-    background: {_BG_CARD};
+    width: 22px;
+    height: 22px;
+    border: 2px solid {_BORDER_LIGHT};
+    border-radius: 6px;
+    background: {_BG_SURFACE};
+}}
+QCheckBox::indicator:hover {{
+    border-color: {_ACCENT};
+    background: {_BG_MAIN};
 }}
 QCheckBox::indicator:checked {{
     background-color: {_ACCENT};
     border-color: {_ACCENT};
+    image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'><polyline points='2,7 5.5,10.5 12,3' stroke='white' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
 }}
 QRadioButton::indicator {{
-    width: 20px;
-    height: 20px;
-    border: 2px solid {_TEXT_LIGHT};
-    border-radius: 10px;
-    background: {_BG_CARD};
+    width: 26px;
+    height: 26px;
+    border: 1px solid {_BORDER_LIGHT};
+    border-radius: 13px;
+    background: {_BG_SURFACE};
 }}
 QRadioButton::indicator:checked {{
-    background-color: {_BG_CARD};
-    border: 6px solid {_ACCENT};
+    background-color: {_BG_SURFACE};
+    border: 7px solid {_ACCENT};
 }}
 
 /* ─── SpinBox ─── */
@@ -487,43 +499,47 @@ QLabel#badgeRed {{
     font-weight: 600;
 }}
 
-/* ─── List (Material list tiles) ─── */
+/* ─── List (как таблица Excel: сетка, чередование строк) ─── */
 QListWidget {{
     border: 1px solid {_BORDER};
-    border-radius: 12px;
-    background: {_BG_CARD};
-    font-size: 14px;
+    border-radius: 0;
+    background: {_BG_MAIN};
+    font-size: 11pt;
     color: {_TEXT};
 }}
 QListWidget::item {{
-    padding: 14px 16px;
-    border-bottom: 1px solid {_BORDER_LIGHT};
+    padding: 10px 14px;
+    min-height: 28px;
+}}
+QListWidget::item:alternate {{
+    background-color: #FAFAFA;
 }}
 QListWidget::item:selected {{
-    background-color: {_ACCENT_LIGHT};
+    background-color: {_EXCEL_SELECT_BG};
     color: {_TEXT};
 }}
 QListWidget::item:hover {{
-    background-color: {_BG_SURFACE};
+    background-color: #E9EDF4;
 }}
 
-/* ─── Tree ─── */
+/* ─── Tree (как таблица Excel) ─── */
 QTreeWidget {{
     border: 1px solid {_BORDER};
-    border-radius: 12px;
-    background: {_BG_CARD};
-    font-size: 14px;
+    border-radius: 0;
+    background: {_BG_MAIN};
+    font-size: 11pt;
     color: {_TEXT};
 }}
 QTreeWidget::item {{
     padding: 10px 14px;
+    min-height: 28px;
 }}
 QTreeWidget::item:selected {{
-    background-color: {_ACCENT_LIGHT};
+    background-color: {_EXCEL_SELECT_BG};
     color: {_TEXT};
 }}
 QTreeWidget::item:hover {{
-    background-color: {_BG_SURFACE};
+    background-color: #E9EDF4;
 }}
 
 /* ─── Edit panel (side sheet) ─── */

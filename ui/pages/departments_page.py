@@ -12,15 +12,14 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem,
     QLineEdit, QComboBox, QFormLayout, QDialogButtonBox,
     QMessageBox, QInputDialog, QListWidget, QListWidgetItem, QHeaderView,
-    QMenu, QApplication, QStyle,
+    QMenu, QApplication, QStyle, QScrollArea, QFrame,
 )
 from PyQt6.QtCore import Qt, QTimer, QMimeData
 from PyQt6.QtGui import QFont, QAction, QShortcut, QKeySequence
 from PyQt6.QtGui import QDrag
 
 from core import data_store
-from ui.styles import STYLESHEET
-from ui.widgets import hint_icon_button, CommitLineEdit, make_combo_searchable
+from ui.widgets import hint_icon_button, CommitLineEdit, SearchableList, ToggleSwitch
 
 MIME_DEPT_PRODUCTS = "application/x-dept-products"
 
@@ -126,12 +125,12 @@ class DepartmentsDialog(QDialog):
         self.setWindowTitle("Отделы и продукты")
         self.setMinimumSize(780, 560)
         self.setModal(True)
-        self.setStyleSheet(STYLESHEET)
         self._build_ui()
         self._refresh_tree()
 
     def _build_ui(self):
-        lay = QVBoxLayout(self)
+        content = QWidget()
+        lay = QVBoxLayout(content)
         lay.setContentsMargins(20, 16, 20, 16)
         lay.setSpacing(12)
 
@@ -201,7 +200,6 @@ class DepartmentsDialog(QDialog):
         self.tree.setAlternatingRowColors(True)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_context_menu)
-        self.tree.itemChanged.connect(self._on_tree_item_changed)
         self._tree_updating = False
         lay.addWidget(self.tree)
 
@@ -214,6 +212,16 @@ class DepartmentsDialog(QDialog):
         btn_close.setObjectName("btnSecondary")
         btn_close.clicked.connect(self.accept)
         lay.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignRight)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(content)
+        main_lay = QVBoxLayout(self)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.addWidget(scroll)
 
     # ─────────────────────────── Дерево ───────────────────────────────────
 
@@ -250,7 +258,6 @@ class DepartmentsDialog(QDialog):
             dept_item.setData(0, Qt.ItemDataRole.UserRole, dept)
             dept_item.setIcon(0, icon_dept)
             dept_item.setFont(0, bold_font)
-            dept_item.setCheckState(3, Qt.CheckState.Checked if dept.get("labelsEnabled", True) else Qt.CheckState.Unchecked)
 
             for sub in sorted(dept.get("subdepts", []), key=lambda s: s["name"].lower()):
                 sub_item = QTreeWidgetItem([
@@ -259,7 +266,6 @@ class DepartmentsDialog(QDialog):
                 ])
                 sub_item.setData(0, Qt.ItemDataRole.UserRole, sub)
                 sub_item.setIcon(0, icon_sub)
-                sub_item.setCheckState(3, Qt.CheckState.Checked if sub.get("labelsEnabled", True) else Qt.CheckState.Unchecked)
 
                 for prod in sorted(
                     (p for p in products if p.get("deptKey") == sub["key"]),
@@ -274,6 +280,7 @@ class DepartmentsDialog(QDialog):
                     sub_item.addChild(prod_item)
 
                 dept_item.addChild(sub_item)
+                self._attach_labels_toggle(sub_item, bool(sub.get("labelsEnabled", True)))
 
             for prod in sorted(
                 (p for p in products if p.get("deptKey") == dept["key"]),
@@ -288,19 +295,35 @@ class DepartmentsDialog(QDialog):
                 dept_item.addChild(prod_item)
 
             self.tree.addTopLevelItem(dept_item)
+            self._attach_labels_toggle(dept_item, bool(dept.get("labelsEnabled", True)))
             dept_item.setExpanded(True)
 
         self._tree_updating = False
         self.tree.setUpdatesEnabled(True)
 
-    def _on_tree_item_changed(self, item: QTreeWidgetItem, column: int):
-        if self._tree_updating or column != 3:
-            return
+    def _attach_labels_toggle(self, item: QTreeWidgetItem, enabled: bool) -> None:
+        """Добавляет ToggleSwitch в колонку «Печатать этикетки» для отдела/подотдела."""
         obj = item.data(0, Qt.ItemDataRole.UserRole)
         kind, _ = _item_role(obj)
         if kind not in ("dept", "subdept"):
             return
-        enabled = item.checkState(3) == Qt.CheckState.Checked
+        host = QWidget()
+        row = QHBoxLayout(host)
+        row.setContentsMargins(4, 2, 4, 2)
+        row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tog = ToggleSwitch(host)
+        tog.setChecked(enabled)
+        tog.stateChanged.connect(
+            lambda state, it=item: self._on_labels_toggle_changed(it, state == Qt.CheckState.Checked.value)
+        )
+        row.addWidget(tog)
+        self.tree.setItemWidget(item, 3, host)
+
+    def _on_labels_toggle_changed(self, item: QTreeWidgetItem, enabled: bool) -> None:
+        obj = item.data(0, Qt.ItemDataRole.UserRole)
+        kind, key = _item_role(obj)
+        if kind not in ("dept", "subdept"):
+            return
         obj["labelsEnabled"] = enabled
         depts = data_store.get_ref("departments")
         if depts:
@@ -402,7 +425,6 @@ class DepartmentsDialog(QDialog):
         combo_dept = QComboBox()
         for d in sorted(depts, key=lambda d: d["name"].lower()):
             combo_dept.addItem(d["name"], d["key"])
-        make_combo_searchable(combo_dept)
         form.addRow("Отдел:", combo_dept)
 
         le_name = CommitLineEdit()
@@ -463,35 +485,51 @@ class DepartmentsDialog(QDialog):
         dlg = QDialog(self)
         dlg.setWindowTitle("Привязать продукты к отделу")
         dlg.setMinimumWidth(500)
-        dlg.setMinimumHeight(440)
+        dlg.setMinimumHeight(500)
         vlay = QVBoxLayout(dlg)
         vlay.setSpacing(10)
 
-        lbl_target = QLabel("Привязать к отделу / подотделу:")
+        lbl_target = QLabel("Выберите отдел или подотдел для привязки:")
         vlay.addWidget(lbl_target)
 
-        combo_target = QComboBox()
+        depts_list = SearchableList(dlg, multi_select=False)
+        depts_list.list.setMinimumHeight(140)
         for d in sorted(depts, key=lambda d: d["name"].lower()):
-            combo_target.addItem(f"• {d['name']}", d["key"])
+            dept_item = QListWidgetItem(f"• {d['name']} (отдел)")
+            dept_item.setData(Qt.ItemDataRole.UserRole, d["key"])
+            depts_list.list.addItem(dept_item)
             for sub in sorted(d.get("subdepts", []), key=lambda s: s["name"].lower()):
-                combo_target.addItem(f"  └ {sub['name']}", sub["key"])
-        make_combo_searchable(combo_target)
-        vlay.addWidget(combo_target)
+                sub_item = QListWidgetItem(f"    └ {sub['name']} (подотдел)")
+                sub_item.setData(Qt.ItemDataRole.UserRole, sub["key"])
+                depts_list.list.addItem(sub_item)
+        depts_list.hide_requested.connect(lambda: depts_list.setVisible(False))
+        vlay.addWidget(depts_list)
 
         lbl_prods = QLabel("Продукты (Ctrl+клик или Shift+клик — выбрать несколько):")
         vlay.addWidget(lbl_prods)
 
-        list_prods = QListWidget()
-        list_prods.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        prods_list = SearchableList(dlg, multi_select=True)
         for p in unassigned:
             item = QListWidgetItem(f"{p['name']} ({p.get('unit', '')})")
             item.setData(Qt.ItemDataRole.UserRole, p["name"])
-            list_prods.addItem(item)
-        vlay.addWidget(list_prods)
+            prods_list.list.addItem(item)
+        prods_list.hide_requested.connect(lambda: prods_list.setVisible(False))
+        vlay.addWidget(prods_list)
 
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        ok_btn = btns.button(QDialogButtonBox.StandardButton.Ok)
+        ok_btn.setEnabled(False)
+
+        def _update_ok():
+            has_dept = depts_list.list.currentItem() is not None
+            has_prods = len(prods_list.list.selectedItems()) > 0
+            ok_btn.setEnabled(has_dept and has_prods)
+        depts_list.list.itemSelectionChanged.connect(_update_ok)
+        prods_list.list.itemSelectionChanged.connect(_update_ok)
+        _update_ok()
+
         btns.accepted.connect(dlg.accept)
         btns.rejected.connect(dlg.reject)
         vlay.addWidget(btns)
@@ -501,12 +539,12 @@ class DepartmentsDialog(QDialog):
 
         selected_names = {
             item.data(Qt.ItemDataRole.UserRole)
-            for item in list_prods.selectedItems()
+            for item in prods_list.list.selectedItems()
         }
-        if not selected_names:
+        cur = depts_list.list.currentItem()
+        target_key = cur.data(Qt.ItemDataRole.UserRole) if cur else None
+        if not target_key or not selected_names:
             return
-
-        target_key = combo_target.currentData()
         for p in products:
             if p["name"] in selected_names:
                 p["deptKey"] = target_key

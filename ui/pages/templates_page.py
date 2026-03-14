@@ -13,15 +13,14 @@ from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QSplitter, QTableWidget,
     QTableWidgetItem, QMessageBox, QLineEdit, QAbstractItemView, QMenu,
-    QComboBox, QHeaderView, QInputDialog, QSpinBox, QCheckBox,
+    QComboBox, QHeaderView, QInputDialog, QSpinBox,
     QDateEdit, QScrollArea, QGridLayout, QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QDate, QPoint
 from PyQt6.QtGui import QColor, QDrag, QPixmap
 
 from core import data_store
-from ui.styles import STYLESHEET
-from ui.widgets import CommitLineEdit, hint_icon_button, make_combo_searchable
+from ui.widgets import CommitLineEdit, hint_icon_button, ToggleSwitch
 
 
 # ─────────────────────────── Доступные поля ───────────────────────────────
@@ -343,7 +342,6 @@ class TemplateEditorDialog(QDialog):
         self.setMinimumSize(1200, 720)
         self.resize(1280, 760)
         self.setModal(True)
-        self.setStyleSheet(STYLESHEET)
         self._build_ui()
         self._load_grid()
 
@@ -372,7 +370,6 @@ class TemplateEditorDialog(QDialog):
             if self.combo_format.itemData(i) == current_fmt:
                 self.combo_format.setCurrentIndex(i)
                 break
-        make_combo_searchable(self.combo_format)
         row2.addWidget(self.combo_format)
         row2.addSpacing(24)
         row2.addWidget(QLabel("Привязать к отделу:"))
@@ -384,7 +381,6 @@ class TemplateEditorDialog(QDialog):
         if idx >= 0:
             self.combo_dept.setCurrentIndex(idx)
         self.combo_dept.currentIndexChanged.connect(self._apply_title_row)
-        make_combo_searchable(self.combo_dept)
         row2.addWidget(self.combo_dept)
         row2.addStretch()
         root.addLayout(row2)
@@ -427,11 +423,13 @@ class TemplateEditorDialog(QDialog):
         title_row = self._tmpl.get("titleRow") or {}
         row_title = QHBoxLayout()
         row_title.addWidget(QLabel("Строка 1 (заголовок):"))
-        self.chk_title_auto = QCheckBox("Авто")
+        row_title.addWidget(QLabel("Авто"))
+        self.chk_title_auto = ToggleSwitch()
         self.chk_title_auto.setChecked(title_row.get("auto", True))
         self.chk_title_auto.stateChanged.connect(self._apply_title_row)
         row_title.addWidget(self.chk_title_auto)
-        self.chk_title_dept = QCheckBox("Название отдела")
+        row_title.addWidget(QLabel("Название отдела"))
+        self.chk_title_dept = ToggleSwitch()
         self.chk_title_dept.setChecked(title_row.get("includeDept", True))
         self.chk_title_dept.stateChanged.connect(self._apply_title_row)
         row_title.addWidget(self.chk_title_dept)
@@ -676,12 +674,12 @@ class TemplatesDialog(QDialog):
         self.setWindowTitle("Шаблоны")
         self.setMinimumSize(640, 440)
         self.setModal(True)
-        self.setStyleSheet(STYLESHEET)
         self._build_ui()
         self._refresh_list()
 
     def _build_ui(self):
-        root = QVBoxLayout(self)
+        content = QWidget()
+        root = QVBoxLayout(content)
         root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(12)
 
@@ -734,6 +732,16 @@ class TemplatesDialog(QDialog):
         btn_close.clicked.connect(self.accept)
         btn_row.addWidget(btn_close)
         root.addLayout(btn_row)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(content)
+        main_lay = QVBoxLayout(self)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.addWidget(scroll)
 
     def _refresh_list(self):
         self.list_templates.clear()

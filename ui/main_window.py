@@ -2,6 +2,16 @@
 main_window.py — Главное окно приложения.
 Содержит: меню, стек страниц, навигацию.
 """
+import os
+import sys
+
+# Если файл запущен напрямую (не через app.py), добавить корень проекта в sys.path,
+# чтобы работали импорты вида `from ui...` и `from core...`.
+if __name__ == "__main__" and __package__ is None:
+    ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if ROOT_DIR not in sys.path:
+        sys.path.insert(0, ROOT_DIR)
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QMenuBar, QMenu, QLabel, QPushButton,
@@ -10,7 +20,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QKeySequence
 
-from ui.styles import STYLESHEET
 from core import data_store
 
 
@@ -23,9 +32,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Маршруты, Сборка")
-        self.setMinimumSize(1100, 700)
-        self.resize(1200, 750)
-        self.setStyleSheet(STYLESHEET)
+        self.setMinimumSize(1150, 760)
+        self.resize(1280, 820)
 
         # Состояние приложения (передаётся между страницами). Папка сохранения загружается из хранилища.
         save_dir = data_store.get_setting("defaultSaveDir")
@@ -37,7 +45,7 @@ class MainWindow(QMainWindow):
             "uniqueProducts": [],     # уникальные продукты из файлов
             "filteredRoutes": [],     # маршруты после фильтрации/исключения
             "routeCategory": "ШК",    # "ШК" | "СД" для округления
-            "sortAsc": False,         # сортировка маршрутов
+            "sortAsc": True,          # сортировка маршрутов по возрастанию
         }
 
         self._build_ui()
@@ -122,29 +130,11 @@ class MainWindow(QMainWindow):
         mb = self.menuBar()
         mb.setNativeMenuBar(False)
 
-        # ── Файл (с подменю «Перейти») ─────────────────────────────────────
+        # ── Файл (Справочники, Настройки, Помощь) ───────────────────────────
         file_menu = mb.addMenu("Файл")
-        act_new = QAction("Новая обработка\tCtrl+O", self)
-        act_new.setShortcut(QKeySequence("Ctrl+O"))
-        act_new.triggered.connect(self._on_new_session)
-        file_menu.addAction(act_new)
-        file_menu.addSeparator()
 
-        go_sub = file_menu.addMenu("Перейти")
-        act_labels = QAction("Этикетки\tCtrl+L", self)
-        act_labels.setShortcut(QKeySequence("Ctrl+L"))
-        act_labels.triggered.connect(lambda: self.navigate_to.emit("labels"))
-        go_sub.addAction(act_labels)
-
-        file_menu.addSeparator()
-        act_exit = QAction("Выход", self)
-        act_exit.triggered.connect(self.close)
-        file_menu.addAction(act_exit)
-
-        # ── Справочники (подменю: Данные, Шаблоны) ───────────────────────────
-        ref_menu = mb.addMenu("Справочники")
-
-        data_sub = ref_menu.addMenu("Данные")
+        ref_sub = file_menu.addMenu("Справочники")
+        data_sub = ref_sub.addMenu("Данные")
         act_depts = QAction("Отделы и продукты\tCtrl+D", self)
         act_depts.setShortcut(QKeySequence("Ctrl+D"))
         act_depts.triggered.connect(lambda: self.navigate_to.emit("departments"))
@@ -153,26 +143,31 @@ class MainWindow(QMainWindow):
         act_products.setShortcut(QKeySequence("Ctrl+P"))
         act_products.triggered.connect(lambda: self.navigate_to.emit("products"))
         data_sub.addAction(act_products)
-
         act_templates = QAction("Шаблоны Excel\tCtrl+T", self)
         act_templates.setShortcut(QKeySequence("Ctrl+T"))
         act_templates.triggered.connect(lambda: self.navigate_to.emit("templates"))
-        ref_menu.addAction(act_templates)
+        ref_sub.addAction(act_templates)
 
-        # ── Настройки ─────────────────────────────────────────────────────
-        settings_menu = mb.addMenu("Настройки")
+        settings_sub = file_menu.addMenu("Настройки")
         act_file_params = QAction("Параметры создания файлов", self)
         act_file_params.triggered.connect(self._open_file_creation_settings)
-        settings_menu.addAction(act_file_params)
+        settings_sub.addAction(act_file_params)
+        act_quantity = QAction("Настройки Количества", self)
+        act_quantity.triggered.connect(self._open_quantity_settings)
+        settings_sub.addAction(act_quantity)
 
-        # ── Помощь ───────────────────────────────────────────────────────
-        help_menu = mb.addMenu("Помощь")
+        help_sub = file_menu.addMenu("Помощь")
         act_shortcuts = QAction("Горячие клавиши", self)
         act_shortcuts.triggered.connect(self._show_shortcuts_help)
-        help_menu.addAction(act_shortcuts)
+        help_sub.addAction(act_shortcuts)
         act_about = QAction("О программе", self)
         act_about.triggered.connect(self._show_about)
-        help_menu.addAction(act_about)
+        help_sub.addAction(act_about)
+
+        file_menu.addSeparator()
+        act_exit = QAction("Выход", self)
+        act_exit.triggered.connect(self.close)
+        file_menu.addAction(act_exit)
 
     # ─────────────────────────── Горячие клавиши ────────────────────────
 
@@ -189,19 +184,32 @@ class MainWindow(QMainWindow):
             import logging
             logging.getLogger("app").exception("file_creation_settings")
 
+    def _open_quantity_settings(self):
+        try:
+            from ui.pages.quantity_settings_dialog import open_quantity_settings_dialog
+            open_quantity_settings_dialog(self, self.app_state)
+        except Exception:
+            import traceback
+            import logging
+            logging.getLogger("app").exception("quantity_settings")
+
     def _show_shortcuts_help(self):
         from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.information(
-            self, "Горячие клавиши",
+        text = (
             "Горячие клавиши приложения:\n\n"
-            "  Ctrl+O    —  Новая обработка (главная страница)\n"
-            "  Ctrl+L    —  Этикетки\n"
             "  Ctrl+D    —  Отделы и продукты\n"
             "  Ctrl+T    —  Шаблоны\n"
             "  Ctrl+P    —  Продукты\n"
             "  Ctrl+F    —  Фокус на поиск (в предпросмотре и настройках)\n\n"
             "  Escape    —  Закрыть модальное окно или панель редактирования"
         )
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Горячие клавиши")
+        mb.setText(text)
+        mb.setTextFormat(Qt.TextFormat.PlainText)
+        mb.setIcon(QMessageBox.Icon.Information)
+        mb.setStandardButtons(QMessageBox.StandardButton.Ok)
+        mb.exec()
 
     def _show_about(self):
         from PyQt6.QtWidgets import QMessageBox
@@ -235,7 +243,13 @@ class MainWindow(QMainWindow):
         if not self._page_hint_long:
             return
         from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.information(self, "Инструкция", self._page_hint_long)
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Инструкция")
+        mb.setText(self._page_hint_long)
+        mb.setTextFormat(Qt.TextFormat.PlainText)
+        mb.setIcon(QMessageBox.Icon.Information)
+        mb.setStandardButtons(QMessageBox.StandardButton.Ok)
+        mb.exec()
 
     def _on_new_session(self):
         """Сбрасывает состояние и возвращает на главную страницу."""
@@ -248,6 +262,15 @@ class MainWindow(QMainWindow):
             "uniqueProducts": [],
             "filteredRoutes": [],
             "routeCategory": "ШК",
-            "sortAsc": False,
+            "sortAsc": True,
         })
         self.navigate_to.emit("dashboard")
+
+
+if __name__ == "__main__":
+    from PyQt6.QtWidgets import QApplication
+
+    app = QApplication(sys.argv)
+    win = MainWindow()
+    win.show()
+    sys.exit(app.exec())

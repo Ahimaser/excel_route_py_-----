@@ -71,6 +71,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 
 from ui.main_window import MainWindow
 
@@ -150,6 +151,19 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Маршруты, Сборка")
     app.setOrganizationName("RouteManager")
+    app_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "app_icon.svg")
+    if os.path.isfile(app_icon_path):
+        app_icon = QIcon(app_icon_path)
+        if not app_icon.isNull():
+            app.setWindowIcon(app_icon)
+
+    # Тема в стиле веб-приложения (Material Design)
+    try:
+        from qt_material import apply_stylesheet
+        apply_stylesheet(app, theme="light_blue.xml", invert_secondary=True)
+    except ImportError:
+        from ui.styles import STYLESHEET
+        app.setStyleSheet(STYLESHEET)
 
     try:
         from PyQt6.QtCore import qInstallMessageHandler
@@ -165,6 +179,10 @@ def main():
     except Exception:
         log.critical("Ошибка при создании MainWindow:\n%s", traceback.format_exc())
         raise
+    if os.path.isfile(app_icon_path):
+        app_icon = QIcon(app_icon_path)
+        if not app_icon.isNull():
+            window.setWindowIcon(app_icon)
 
     stack = window.stack
 
@@ -185,6 +203,16 @@ def main():
                 pd.refresh()
         except Exception:
             log.critical("Ошибка при открытии departments:\n%s", traceback.format_exc())
+            try:
+                from ui.widgets import message_plain
+                from PyQt6.QtWidgets import QMessageBox
+                message_plain(
+                    window, "Ошибка",
+                    "Не удалось открыть диалог «Отделы и продукты».\n\nПодробности в файле:\n" + _LOG_PATH,
+                    icon=QMessageBox.Icon.Warning,
+                )
+            except Exception:
+                pass
 
     def _open_products():
         """Открывает модальный диалог «Справочник продуктов»."""
@@ -197,6 +225,16 @@ def main():
                 _open_departments()
         except Exception:
             log.critical("Ошибка при открытии products:\n%s", traceback.format_exc())
+            try:
+                from ui.widgets import message_plain
+                from PyQt6.QtWidgets import QMessageBox
+                message_plain(
+                    window, "Ошибка",
+                    "Не удалось открыть диалог «Справочник продуктов».\n\nПодробности в файле:\n" + _LOG_PATH,
+                    icon=QMessageBox.Icon.Warning,
+                )
+            except Exception:
+                pass
 
     def _open_templates():
         """Открывает модальный диалог «Шаблоны»."""
@@ -206,6 +244,36 @@ def main():
             open_modal(window, window.app_state)
         except Exception:
             log.critical("Ошибка при открытии templates:\n%s", traceback.format_exc())
+            try:
+                from ui.widgets import message_plain
+                from PyQt6.QtWidgets import QMessageBox
+                message_plain(
+                    window, "Ошибка",
+                    "Не удалось открыть диалог «Шаблоны».\n\nПодробности в файле:\n" + _LOG_PATH,
+                    icon=QMessageBox.Icon.Warning,
+                )
+            except Exception:
+                pass
+
+    def _open_quantity_settings():
+        """Открывает модальный диалог «Настройки Количества»."""
+        log.debug("Открываем диалог: quantity_settings")
+        try:
+            from ui.pages.quantity_settings_dialog import open_quantity_settings_dialog
+            open_quantity_settings_dialog(window, window.app_state)
+        except Exception:
+            log.critical("Ошибка при открытии Настройки Количества:\n%s", traceback.format_exc())
+            try:
+                from ui.widgets import message_plain
+                from PyQt6.QtWidgets import QMessageBox
+                message_plain(
+                    window,
+                    "Ошибка",
+                    "Не удалось открыть «Настройки Количества».\n\nПодробности в файле:\n" + _LOG_PATH,
+                    icon=QMessageBox.Icon.Warning,
+                )
+            except Exception:
+                pass
 
     # Словарь: имя → функция открытия модального диалога
     _modal_openers = {
@@ -220,6 +288,9 @@ def main():
         """Очищает только сохранённые «последние» маршруты (остаётся на дашборде)."""
         from core import data_store
         data_store.clear_last_routes()
+        dashboard = _page_cache.get("dashboard")
+        if dashboard is not None and hasattr(dashboard, "refresh"):
+            dashboard.refresh()
         try:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.information(window, "Готово", "Сохранённые маршруты удалены.")
@@ -233,7 +304,8 @@ def main():
         window.app_state.update({
             "fileType": "main", "filePaths": [], "routes": [],
             "uniqueProducts": [], "filteredRoutes": [],
-            "routeCategory": "ШК", "sortAsc": False,
+            "routeCategory": "ШК", "sortAsc": True,
+            "institutionList": [],
         })
         home = _page_cache.get("home")
         if home and hasattr(home, "reset"):
@@ -243,12 +315,32 @@ def main():
             set_status("Маршруты очищены")
         navigate("dashboard")
 
-    # ── Загрузка последних маршрутов и переход в превью ───────────────────
+    # ── Загрузка маршрутов и переход в превью ─────────────────────────────
+
+    def _apply_saved_blob_and_open_preview(data: dict, fallback_file_type: str) -> None:
+        """Применяет данные сохранения к app_state и переходит в preview_general."""
+        import copy
+        from core import data_store
+        routes = copy.deepcopy(data.get("routes") or [])
+        unique_products = copy.deepcopy(data.get("uniqueProducts") or [])
+        filtered = copy.deepcopy(data.get("filteredRoutes") or data.get("routes") or [])
+        file_type = data.get("fileType") or fallback_file_type
+        n = len(filtered)
+        set_status = window.app_state.get("set_status")
+        if callable(set_status) and n:
+            set_status(f"Загружено {n} маршрутов")
+        window.app_state["institutionList"] = data_store.get_institution_list_from_routes(filtered)
+        window.app_state.update({
+            "fileType":       file_type,
+            "routes":         routes,
+            "uniqueProducts": unique_products,
+            "filteredRoutes": filtered,
+            "routeCategory":  data.get("routeCategory") or "ШК",
+        })
+        navigate("preview_general")
 
     def _load_last_and_go_preview(file_type: str):
-        """Загружает последние маршруты (main/increase) в app_state и переходит в preview_general.
-        Данные копируются, чтобы исключения маршрутов в превью не мутировали хранилище до следующего сохранения."""
-        import copy
+        """Загружает последние маршруты (main/increase) в app_state и переходит в preview_general."""
         from core import data_store
         data = data_store.get_last_routes(file_type)
         if not data:
@@ -258,21 +350,15 @@ def main():
                 "Нет сохранённых маршрутов для выбранного типа. Сначала обработайте файлы."
             )
             return
-        routes = copy.deepcopy(data.get("routes") or [])
-        unique_products = copy.deepcopy(data.get("uniqueProducts") or [])
-        filtered = copy.deepcopy(data.get("filteredRoutes") or data.get("routes") or [])
-        n = len(filtered)
-        set_status = window.app_state.get("set_status")
-        if callable(set_status) and n:
-            set_status(f"Загружено {n} маршрутов (последние)")
-        window.app_state.update({
-            "fileType":       file_type,
-            "routes":         routes,
-            "uniqueProducts": unique_products,
-            "filteredRoutes": filtered,
-            "routeCategory":  data.get("routeCategory") or "ШК",
-        })
-        navigate("preview_general")
+        _apply_saved_blob_and_open_preview(data, file_type)
+
+    def _open_history_and_go_preview(file_type: str) -> None:
+        """Открывает диалог «История маршрутов», выбирает запись и переходит в preview."""
+        from ui.pages.routes_history_dialog import pick_routes_history_entry
+        data = pick_routes_history_entry(window, file_type=file_type)
+        if not data:
+            return
+        _apply_saved_blob_and_open_preview(data, file_type)
 
     # ── Страницы в стеке ──────────────────────────────────────────────────
 
@@ -286,11 +372,10 @@ def main():
             if name == "dashboard":
                 from ui.pages.dashboard_page import DashboardPage
                 page = DashboardPage(window.app_state)
-                page.go_process_files.connect(lambda: navigate("home"))
-                page.open_last_main.connect(lambda: _load_last_and_go_preview("main"))
-                page.open_last_increase.connect(lambda: _load_last_and_go_preview("increase"))
-                page.go_labels.connect(lambda: navigate("labels"))
+                page.open_history.connect(lambda: _open_history_and_go_preview(None))
                 page.clear_last_routes.connect(_clear_last_routes_only)
+                if hasattr(page, "open_rounding_settings"):
+                    page.open_rounding_settings.connect(_open_quantity_settings)
 
             elif name == "home":
                 from ui.pages.home_page import HomePage
@@ -301,7 +386,7 @@ def main():
                 from ui.pages.labels_page import LabelsPage
                 page = LabelsPage(window.app_state)
                 page.go_back.connect(lambda: navigate("dashboard"))
-                page.go_open_routes.connect(lambda: _load_last_and_go_preview("main"))
+                page.go_open_routes.connect(lambda: _open_history_and_go_preview("main"))
                 page.go_process_files.connect(lambda: navigate("home"))
 
             elif name == "preview_general":
@@ -369,11 +454,13 @@ def main():
             log.critical("Ошибка при переходе на страницу '%s':\n%s",
                          page_name, traceback.format_exc())
             try:
+                from ui.widgets import message_plain
                 from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.warning(
+                message_plain(
                     window, "Ошибка",
                     f"Не удалось открыть страницу «{PAGE_TITLES.get(page_name, page_name)}».\n\n"
-                    f"Подробности в файле:\n{_LOG_PATH}"
+                    f"Подробности в файле:\n{_LOG_PATH}",
+                    icon=QMessageBox.Icon.Warning,
                 )
             except Exception:
                 pass
@@ -391,7 +478,7 @@ def main():
             "uniqueProducts": [],
             "filteredRoutes": [],
             "routeCategory":  "ШК",
-            "sortAsc":        False,
+            "sortAsc":        True,
         })
         home = _page_cache.get("home")
         if home and hasattr(home, "reset"):

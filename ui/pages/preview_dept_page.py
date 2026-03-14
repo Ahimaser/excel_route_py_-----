@@ -23,7 +23,7 @@ from PyQt6.QtGui import QFont, QBrush, QColor, QWheelEvent
 
 from core import data_store, excel_generator
 from ui.pages import departments_page as dept_mod
-from ui.widgets import make_combo_searchable
+from ui.excel_safe_open import open_excel_file_safely
 
 
 # ─────────────────────────── Worker ───────────────────────────────────────
@@ -33,7 +33,9 @@ class DeptGenerateWorker(QObject):
     error    = pyqtSignal(str)
 
     def __init__(self, dept_groups: list, file_type: str, save_dir: str,
-                 prod_map: dict, templates: list, sort_asc: bool = False):
+                 prod_map: dict, templates: list, sort_asc: bool = True,
+                 all_routes: list | None = None, general_path: str | None = None,
+                 date_str: str | None = None):
         super().__init__()
         self.dept_groups = dept_groups
         self.file_type   = file_type
@@ -41,17 +43,54 @@ class DeptGenerateWorker(QObject):
         self.prod_map    = prod_map
         self.templates   = templates
         self.sort_asc    = sort_asc
+        self.all_routes  = all_routes or []
+        self.general_path = general_path
+        self.date_str = date_str
 
     def run(self):
         try:
+            if self.general_path:
+                os.makedirs(os.path.dirname(self.general_path), exist_ok=True)
+                excel_generator.generate_general_routes(
+                    self.all_routes,
+                    self.file_type,
+                    self.general_path,
+                    self.prod_map,
+                    self.sort_asc,
+                )
             created = excel_generator.generate_dept_files(
                 self.dept_groups, self.file_type,
                 self.save_dir, self.prod_map, self.templates,
-                self.sort_asc
+                self.sort_asc, date_str=self.date_str
             )
+            if self.general_path:
+                created = [self.general_path, *created]
             self.finished.emit(created)
         except Exception as e:
             self.error.emit(str(e))
+
+
+class DeptTemplateLabelsWorker(QObject):
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, routes: list, out_dir: str, file_type: str, products_ref: list, departments_ref: list):
+        super().__init__()
+        import copy
+        self.routes = copy.deepcopy(routes)
+        self.out_dir = out_dir
+        self.file_type = file_type
+        self.products_ref = products_ref
+        self.departments_ref = departments_ref
+
+    def run(self):
+        try:
+            created = excel_generator.generate_labels_from_templates(
+                self.routes, self.out_dir, self.file_type, self.products_ref, self.departments_ref
+            )
+            self.finished.emit(created)
+        except Exception as exc:
+            self.error.emit(str(exc))
 
 
 # ─────────────────────────── Страница ─────────────────────────────────────
@@ -73,6 +112,7 @@ class PreviewDeptPage(QWidget):
         self._dept_groups: list[dict] = []
         self._table_font_size = 13
         self._dept_tables: list[QTableWidget] = []
+        self._col_widths_by_table = {}
         self._display_mode = _DISPLAY_ADDR_ONLY  # по умолчанию только № маршрута и адрес
         self._build_ui()
 
@@ -87,9 +127,10 @@ class PreviewDeptPage(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(scroll)
         scroll.setWidget(content)
+        content.setMinimumHeight(680)
         inner = QVBoxLayout(content)
-        inner.setContentsMargins(28, 20, 28, 20)
-        inner.setSpacing(16)
+        inner.setContentsMargins(32, 24, 32, 24)
+        inner.setSpacing(20)
 
         h_row = QHBoxLayout()
         btn_back = QPushButton("← Назад")
@@ -125,8 +166,6 @@ class PreviewDeptPage(QWidget):
         self.combo_display.addItem("Только № и адрес", _DISPLAY_ADDR_ONLY)
         self.combo_display.addItem("Полностью", _DISPLAY_FULL)
         self.combo_display.setCurrentIndex(0)
-        make_combo_searchable(self.combo_dept_filter)
-        make_combo_searchable(self.combo_display)
         self.combo_display.currentIndexChanged.connect(self._on_display_changed)
         filter_row.addWidget(self.combo_display)
         filter_row.addStretch()
@@ -139,14 +178,10 @@ class PreviewDeptPage(QWidget):
         bottom_row.addStretch()
 
         self.btn_generate_all = QPushButton("Создать файлы для всех отделов")
+        self.btn_generate_all.setMinimumWidth(200)
         self.btn_generate_all.setObjectName("btnPrimary")
         self.btn_generate_all.clicked.connect(self._on_generate_all)
         bottom_row.addWidget(self.btn_generate_all)
-
-        self.btn_labels = QPushButton("Этикетки из шаблонов (XLS)")
-        self.btn_labels.setObjectName("btnSecondary")
-        self.btn_labels.clicked.connect(self._on_labels_from_templates)
-        bottom_row.addWidget(self.btn_labels)
 
         self.btn_clear = QPushButton("Очистить маршруты")
         self.btn_clear.setObjectName("btnDanger")
@@ -169,6 +204,8 @@ class PreviewDeptPage(QWidget):
         assigned = {p["name"] for p in products if p.get("deptKey")}
         unassigned: set[str] = set()
         for r in routes:
+            if r.get("excluded"):
+                continue
             for p in r.get("products", []):
                 if p["name"] not in assigned:
                     unassigned.add(p["name"])
@@ -209,9 +246,10 @@ class PreviewDeptPage(QWidget):
                 ]
                 if dept_prods:
                     result.append({
-                        "routeNum": r["routeNum"],
-                        "address":  r["address"],
-                        "products": dept_prods,
+                        "routeNum":       r["routeNum"],
+                        "address":        r["address"],
+                        "routeCategory":  r.get("routeCategory") or "ШК",
+                        "products":       dept_prods,
                     })
             return result
 
@@ -341,6 +379,7 @@ class PreviewDeptPage(QWidget):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
         btn_open = QPushButton("Открыть Отделы и продукты")
+        btn_open.setMinimumWidth(200)
         btn_open.setObjectName("btnPrimary")
         btn_open.clicked.connect(lambda: self._open_depts_and_retry())
         btn_retry = QPushButton("Проверить снова")
@@ -371,10 +410,11 @@ class PreviewDeptPage(QWidget):
         hdr = table.horizontalHeader()
         hdr.setMinimumSectionSize(90)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.resizeSection(1, 260)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.verticalHeader().setVisible(False)
@@ -424,7 +464,7 @@ class PreviewDeptPage(QWidget):
         Заполняет таблицу данными отдела (batch-рендер).
         При режиме «Только № и адрес» — только строки маршрутов; иначе — маршрут + продукты.
         """
-        sort_asc = self.app_state.get("sortAsc", False)
+        sort_asc = self.app_state.get("sortAsc", True)
         from core.excel_generator import _sort_routes
         routes_sorted = _sort_routes(routes, sort_asc)
         only_addr = self._display_mode == _DISPLAY_ADDR_ONLY
@@ -530,46 +570,93 @@ class PreviewDeptPage(QWidget):
         if not ps.get("showPcs") or not (ps.get("pcsPerUnit") or 0) > 0:
             return "—"
 
+        try:
+            val = float(display_qty)
+        except (TypeError, ValueError):
+            return "—"
+        mode = excel_generator.get_dept_special_mode(ps.get("deptKey"))
+        if mode == "polufabricates":
+            pcu = float(ps.get("pcsPerUnit", 1) or 1)
+            if pcu <= 0:
+                return "0"
+            pcs = max(0, int(val // pcu))
+            tail = max(0.0, val - pcs * pcu)
+            if tail > 1e-9:
+                tail_txt = str(int(tail)) if abs(tail - round(tail)) < 1e-9 else f"{tail:.3f}".rstrip("0").rstrip(".")
+                return f"{pcs} + {tail_txt} {prod.get('unit', '')}"
+            return str(pcs)
+        # Порог: ниже — 0 шт (как в генераторе)
+        min_qty = ps.get("minQtyForPcs")
+        if min_qty is not None and min_qty > 0:
+            threshold = float(min_qty)
+        else:
+            unit_lower = (prod.get("unit") or "").strip().lower()
+            threshold = 0.2 if unit_lower in ("кг", "л", "kg", "l") else 0
+        if val < threshold:
+            return "0"
+
         route_cat = route.get("routeCategory") or "ШК"
-        round_up = (
-            ps.get("roundUpСД") if "roundUpСД" in ps else ps.get("roundUp", True)
-            if route_cat == "СД"
-            else ps.get("roundUpШК") if "roundUpШК" in ps else ps.get("roundUp", True)
-        )
-        pcs = excel_generator.calc_pcs(
-            display_qty, float(ps.get("pcsPerUnit", 1)), bool(round_up)
-        )
+        pcu = float(ps.get("pcsPerUnit", 1))
+        addr = route.get("address", "")
+        force_round_up = excel_generator.is_always_round_up_institution(addr)
+        if force_round_up:
+            pct = excel_generator.get_institution_round_percent(ps.get("deptKey"))
+            round_tail = pcu * (pct / 100.0)
+            pcs = excel_generator.calc_pcs_tail(val, pcu, round_tail)
+        else:
+            round_tail = ps.get("roundTailFromСД") if route_cat == "СД" else ps.get("roundTailFromШК")
+            if round_tail is not None:
+                round_tail = float(round_tail)
+                pcs = excel_generator.calc_pcs_tail(val, pcu, round_tail)
+            else:
+                round_up = (
+                    ps.get("roundUpСД") if "roundUpСД" in ps else ps.get("roundUp", True)
+                    if route_cat == "СД"
+                    else ps.get("roundUpШК") if "roundUpШК" in ps else ps.get("roundUp", True)
+                )
+                pcs = excel_generator.calc_pcs(val, pcu, bool(round_up))
         return str(pcs)
 
     # ─────────────────────────── Генерация ────────────────────────────────
 
     def _on_save_single(self, group: dict):
-        tomorrow = datetime.now() + timedelta(days=1)
-        date_str  = tomorrow.strftime("%d.%m.%Y")
+        date_str = excel_generator.get_routes_date_str()
         file_type = self.app_state.get("fileType", "main")
-        suffix    = "УВ" if file_type == "increase" else "ОСН"
-
-        import re
-        safe_name = re.sub(r'[\\/:*?"<>|]', "_", group["name"])
-        default_name = f"Маршруты {safe_name} {date_str} {suffix}.xls"
-
-        save_dir = self.app_state.get("saveDir") or data_store.get_desktop_path()
-        save_path, _ = QFileDialog.getSaveFileName(
-            self, "Сохранить файл",
-            os.path.join(save_dir, default_name),
-            "Excel 97-2003 (*.xls)"
+        data_store.save_last_routes(
+            file_type,
+            self.app_state.get("routes", []),
+            self.app_state.get("uniqueProducts", []),
+            self.app_state.get("filteredRoutes", []),
+            route_category=self.app_state.get("routeCategory"),
         )
-        if not save_path:
+        base_dir = self.app_state.get("saveDir") or data_store.get_desktop_path()
+        chosen_base = QFileDialog.getExistingDirectory(
+            self,
+            "Выберите папку для сохранения маршрутов",
+            base_dir,
+        )
+        if not chosen_base:
             return
-        if not save_path.lower().endswith(".xls"):
-            save_path += ".xls"
+        self.app_state["saveDir"] = chosen_base
+        save_path = excel_generator.get_dept_routes_path(chosen_base, file_type, group["name"], date_str)
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
         try:
             prod_map  = data_store.get_products_map()
             templates = data_store.get_ref("templates") or []
-            sort_asc  = self.app_state.get("sortAsc", False)
+            sort_asc  = self.app_state.get("sortAsc", True)
             excel_generator.generate_single_dept_file(
                 group, file_type, save_path, prod_map, templates, sort_asc
+            )
+            day_dir = excel_generator.get_routes_day_folder(chosen_base, date_str)
+            report_path = os.path.join(day_dir, f"Отчет Шт {date_str}.xls")
+            main_blob = data_store.get_last_routes("main") or {}
+            inc_blob = data_store.get_last_routes("increase") or {}
+            excel_generator.generate_pcs_compare_report(
+                report_path,
+                main_blob.get("filteredRoutes") or main_blob.get("routes") or [],
+                inc_blob.get("filteredRoutes") or inc_blob.get("routes") or [],
+                data_store.get_ref("products") or [],
             )
             QMessageBox.information(self, "Готово", f"Файл создан:\n{save_path}")
         except Exception as e:
@@ -587,18 +674,32 @@ class PreviewDeptPage(QWidget):
         )
         if not chosen_dir:
             return
+        self.app_state["saveDir"] = chosen_dir
 
         prod_map  = data_store.get_products_map()
         templates = data_store.get_ref("templates") or []
         file_type = self.app_state.get("fileType", "main")
-        sort_asc  = self.app_state.get("sortAsc", False)
+        data_store.save_last_routes(
+            file_type,
+            self.app_state.get("routes", []),
+            self.app_state.get("uniqueProducts", []),
+            self.app_state.get("filteredRoutes", []),
+            route_category=self.app_state.get("routeCategory"),
+        )
+        sort_asc  = self.app_state.get("sortAsc", True)
+        date_str = excel_generator.get_routes_date_str()
+        type_dir = excel_generator.get_routes_type_folder(chosen_dir, file_type, date_str)
+        os.makedirs(type_dir, exist_ok=True)
+        general_path = excel_generator.get_general_routes_path(chosen_dir, file_type, date_str)
+        all_routes = [r for r in self.app_state.get("filteredRoutes", []) if not r.get("excluded")]
 
         self.btn_generate_all.setEnabled(False)
         self.progress.setVisible(True)
 
         self._gen_thread = QThread(self)
         self._gen_worker = DeptGenerateWorker(
-            self._dept_groups, file_type, chosen_dir, prod_map, templates, sort_asc
+            self._dept_groups, file_type, chosen_dir, prod_map, templates, sort_asc,
+            all_routes=all_routes, general_path=general_path, date_str=date_str
         )
         self._gen_worker.moveToThread(self._gen_thread)
         self._gen_thread.started.connect(self._gen_worker.run)
@@ -611,6 +712,23 @@ class PreviewDeptPage(QWidget):
     def _on_gen_done(self, created: list):
         self.progress.setVisible(False)
         self.btn_generate_all.setEnabled(True)
+        # Отчёт по Шт в корне папки дня.
+        try:
+            if created:
+                any_path = created[0]
+                day_dir = os.path.dirname(os.path.dirname(any_path))
+                date_str = excel_generator.get_routes_date_str()
+                report_path = os.path.join(day_dir, f"Отчет Шт {date_str}.xls")
+                main_blob = data_store.get_last_routes("main") or {}
+                inc_blob = data_store.get_last_routes("increase") or {}
+                excel_generator.generate_pcs_compare_report(
+                    report_path,
+                    main_blob.get("filteredRoutes") or main_blob.get("routes") or [],
+                    inc_blob.get("filteredRoutes") or inc_blob.get("routes") or [],
+                    data_store.get_ref("products") or [],
+                )
+        except Exception:
+            pass
         QMessageBox.information(
             self, "Готово",
             f"Создано файлов: {len(created)}\n\n" +
@@ -643,19 +761,50 @@ class PreviewDeptPage(QWidget):
         os.makedirs(out_dir, exist_ok=True)
         file_type = self.app_state.get("fileType", "main")
         departments_ref = data_store.get_ref("departments") or []
-        try:
-            created = excel_generator.generate_labels_from_templates(
-                routes, out_dir, file_type, products_ref, departments_ref
+        self._labels_out_dir = out_dir
+        self.btn_labels.setEnabled(False)
+        self.progress.setVisible(True)
+        self._labels_thread = QThread(self)
+        self._labels_worker = DeptTemplateLabelsWorker(
+            routes, out_dir, file_type, products_ref, departments_ref
+        )
+        self._labels_worker.moveToThread(self._labels_thread)
+        self._labels_thread.started.connect(self._labels_worker.run)
+        self._labels_worker.finished.connect(self._on_template_labels_done)
+        self._labels_worker.error.connect(self._on_template_labels_error)
+        self._labels_worker.finished.connect(self._labels_thread.quit)
+        self._labels_worker.error.connect(self._labels_thread.quit)
+        self._labels_thread.finished.connect(self._labels_worker.deleteLater)
+        self._labels_thread.finished.connect(self._labels_thread.deleteLater)
+        self._labels_thread.start()
+
+    def _on_template_labels_done(self, created: list):
+        self.progress.setVisible(False)
+        self.btn_labels.setEnabled(True)
+        if created:
+            set_status = self.app_state.get("set_status")
+            if callable(set_status):
+                set_status(f"Создано этикеток: {len(created)}")
+            QMessageBox.information(self, "Готово", f"Создано файлов: {len(created)}\n\n{self._labels_out_dir}")
+            reply = QMessageBox.question(
+                self,
+                "Открыть безопасно",
+                "Открыть первый созданный файл через безопасную локальную копию?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
             )
-            if created:
-                set_status = self.app_state.get("set_status")
-                if callable(set_status):
-                    set_status(f"Создано этикеток: {len(created)}")
-                QMessageBox.information(self, "Готово", f"Создано файлов: {len(created)}\n\n{out_dir}")
-            else:
-                QMessageBox.information(self, "Нет файлов", "Нет этикеток для создания.")
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка", str(e))
+            if reply == QMessageBox.StandardButton.Yes:
+                try:
+                    open_excel_file_safely(created[0])
+                except Exception as exc:
+                    QMessageBox.warning(self, "Не удалось открыть файл", str(exc))
+        else:
+            QMessageBox.information(self, "Нет файлов", "Нет этикеток для создания.")
+
+    def _on_template_labels_error(self, msg: str):
+        self.progress.setVisible(False)
+        self.btn_labels.setEnabled(True)
+        QMessageBox.critical(self, "Ошибка", msg)
 
     def _on_clear_routes(self):
         reply = QMessageBox.question(
@@ -670,5 +819,6 @@ class PreviewDeptPage(QWidget):
             self.app_state.update({
                 "filePaths": [], "routes": [], "uniqueProducts": [],
                 "filteredRoutes": [], "routeCategory": "ШК",
+                "institutionList": [],
             })
             self.go_clear_routes.emit()

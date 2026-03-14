@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from core import data_store
-from ui.styles import STYLESHEET
 
 
 class FileCreationSettingsDialog(QDialog):
@@ -21,7 +20,6 @@ class FileCreationSettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Параметры создания файлов")
         self.setMinimumWidth(360)
-        self.setStyleSheet(STYLESHEET)
         lay = QVBoxLayout(self)
 
         gr = QGroupBox("По умолчанию для файлов маршрутов (не для этикеток)")
