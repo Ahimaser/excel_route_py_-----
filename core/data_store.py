@@ -57,10 +57,11 @@ DEFAULTS: dict[str, Any] = {
                 {"field": "quantity",    "label": None, "merged": False},
                 {"field": "pcs",         "label": None, "merged": False},
             ],
-            "deptKey": None,
+        "deptKey": None,
+        "deptKeys": [],
         },
         {
-            "id": "template2",
+        "id": "template2",
             "name": "Шаблон 2 — Компактный",
             "columns": [
                 {"field": "routeNumber", "label": None, "merged": False},
@@ -69,6 +70,7 @@ DEFAULTS: dict[str, Any] = {
                 {"field": "quantity",    "label": None, "merged": False},
             ],
             "deptKey": None,
+            "deptKeys": [],
         },
     ],
     "settings": {
@@ -101,7 +103,6 @@ DEFAULTS: dict[str, Any] = {
     },
     "last_main_routes": None,
     "last_increase_routes": None,
-    "routes_history": [],
 }
 
 # ─────────────────────────── Состояние модуля ─────────────────────────────
@@ -157,14 +158,19 @@ def _ensure_loaded() -> None:
                 tmpl["columns"] = [
                     {"field": c, "label": None, "merged": False} for c in cols
                 ]
+            if "deptKeys" not in tmpl:
+                dk = tmpl.get("deptKey")
+                tmpl["deptKeys"] = [dk] if dk else []
     if "product_aliases" not in _data:
         _data["product_aliases"] = {}
     if "last_main_routes" not in _data:
         _data["last_main_routes"] = None
     if "last_increase_routes" not in _data:
         _data["last_increase_routes"] = None
-    if "routes_history" not in _data or not isinstance(_data.get("routes_history"), list):
-        _data["routes_history"] = []
+    if "routes_history" in _data and isinstance(_data.get("routes_history"), list) and _data["routes_history"]:
+        _migrate_routes_history_to_hybrid()
+    elif "routes_history" in _data:
+        del _data["routes_history"]
     _data["settings"] = _data.get("settings") or {}
     # Гарантируем наличие ключей округления по учреждениям
     if "alwaysRoundUpInstitutions" not in _data["settings"]:
@@ -508,6 +514,25 @@ def get_department_display_name(dept_key: str) -> str:
     return dept_key
 
 
+def is_subdept_chistchenka(dept_key: str | None) -> bool:
+    """
+    True, если dept_key — подотдел «Чищенка» (по имени или labelPrintMode).
+    Конвертация «В Грязные» доступна только для таких подотделов.
+    """
+    if not dept_key:
+        return False
+    _ensure_loaded()
+    for dept in _data.get("departments", []):
+        for sub in dept.get("subdepts", []):
+            if sub.get("key") == dept_key:
+                mode = sub.get("labelPrintMode")
+                if mode == "chistchenka":
+                    return True
+                name = (sub.get("name") or "").lower()
+                return "чищенка" in name
+    return False
+
+
 def get_column_label(col: dict) -> str:
     """Returns display label for a column dict."""
     if col.get("label"):
@@ -583,6 +608,7 @@ def create_template(name: str) -> dict:
             {"field": "quantity", "label": None, "merged": False},
         ],
         "deptKey": None,
+        "deptKeys": [],
         "format": "",
         "grid": _default_grid(),
         "merges": [],
@@ -620,6 +646,7 @@ def save_template(
     name: str,
     columns: list,
     dept_key=None,
+    dept_keys: list | None = None,
     fmt: str = "",
     grid: list | None = None,
     merges: list | None = None,
@@ -627,9 +654,13 @@ def save_template(
     grid_cols: int | None = None,
     title_row: dict | None = None,
 ) -> bool:
-    """Обновляет шаблон: имя, столбцы, отдел, формат, сетка, размер, заголовок."""
+    """Обновляет шаблон: имя, столбцы, отделы, формат, сетка, размер, заголовок.
+    dept_keys: список ключей отделов/подотделов (пустой = шаблон по умолчанию).
+    dept_key: устаревший параметр, используется если dept_keys не передан."""
     global _dirty
     _ensure_loaded()
+    if dept_keys is None:
+        dept_keys = [dept_key] if dept_key else []
     templates: list = _data.get("templates", [])
     for t in templates:
         if t["id"] == template_id:
@@ -640,7 +671,8 @@ def save_template(
                 t["columns"] = _columns_from_grid(grid, merges)
             else:
                 t["columns"] = columns
-            t["deptKey"] = dept_key
+            t["deptKeys"] = list(dept_keys)
+            t["deptKey"] = dept_keys[0] if len(dept_keys) == 1 else None  # обратная совместимость
             t["format"] = fmt
             if grid_rows is not None:
                 t["gridRows"] = grid_rows
@@ -726,6 +758,93 @@ def get_round_up_percent_for_dept(dept_key: str | None) -> float:
     return float(pct) if pct is not None else 20.0
 
 
+# ─────────────────────────── История маршрутов (гибрид: индекс + файлы) ────
+
+_HISTORY_DIR = "history"
+_INDEX_FILENAME = "index.json"
+
+
+def _get_history_dir() -> Path:
+    """Папка истории маршрутов."""
+    d = get_app_data_dir() / _HISTORY_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _get_history_index_path() -> Path:
+    return _get_history_dir() / _INDEX_FILENAME
+
+
+def _current_month_str() -> str:
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m")
+
+
+def _read_history_index() -> list[dict]:
+    """Читает индекс истории. Пустой список при ошибке."""
+    path = _get_history_index_path()
+    if not path.exists():
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return list(data) if isinstance(data, list) else []
+    except Exception as e:
+        log.warning("Ошибка чтения индекса истории: %s", e)
+        return []
+
+
+def _write_history_index(entries: list[dict]) -> None:
+    path = _get_history_index_path()
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=path.parent, delete=False, suffix=".tmp"
+        ) as tf:
+            json.dump(entries, tf, ensure_ascii=False, indent=2)
+            tmp_path = tf.name
+        os.replace(tmp_path, path)
+    except Exception as e:
+        log.error("Ошибка записи индекса истории: %s", e)
+
+
+def _migrate_routes_history_to_hybrid() -> None:
+    """Миграция: переносит routes_history из store.json в папку history/ (только текущий месяц)."""
+    old = _data.get("routes_history") or []
+    if not isinstance(old, list) or not old:
+        return
+    current_month = _current_month_str()
+    hist_dir = _get_history_dir()
+    index_entries: list[dict] = []
+    for idx, entry in enumerate(old):
+        if not isinstance(entry, dict):
+            continue
+        ts_val = str(entry.get("timestamp") or "")
+        if ts_val[:7] != current_month:
+            continue
+        ts = ts_val[:19].replace(":", "-").replace("T", "_")
+        ft = str(entry.get("fileType") or "main")
+        fname = f"entry_{idx:04d}_{ts}_{ft}.json"
+        fpath = hist_dir / fname
+        try:
+            with open(fpath, "w", encoding="utf-8") as f:
+                json.dump(entry, f, ensure_ascii=False, indent=2)
+            routes = entry.get("filteredRoutes") or entry.get("routes") or []
+            index_entries.append({
+                "timestamp": entry.get("timestamp"),
+                "fileType": ft,
+                "filename": fname,
+                "routeCategory": entry.get("routeCategory") or "ШК",
+                "count": len(routes),
+            })
+        except Exception as e:
+            log.warning("Миграция записи истории %s: %s", fname, e)
+    if index_entries:
+        _write_history_index(index_entries)
+    del _data["routes_history"]
+    global _dirty
+    _dirty = True
+
+
 # ─────────────────────────── Последние маршруты ───────────────────────────
 
 def save_last_routes(
@@ -749,18 +868,45 @@ def save_last_routes(
         blob["routeCategory"] = route_category
     key = "last_main_routes" if file_type == "main" else "last_increase_routes"
     _data[key] = blob
-    # История: храним все сохранения (с ограничением, чтобы store не рос бесконечно).
-    history = list(_data.get("routes_history") or [])
-    history.append({
-        "fileType": file_type,
-        **copy.deepcopy(blob),
-    })
-    # Держим последние 60 записей истории.
-    if len(history) > 60:
-        history = history[-60:]
-    _data["routes_history"] = history
     _dirty = True
     _flush()
+
+    # Гибрид: запись в папку history/
+    entry_full = {"fileType": file_type, **copy.deepcopy(blob)}
+    ts = blob["timestamp"][:19].replace(":", "-").replace("T", "_")
+    fname = f"entry_{ts}_{file_type}.json"
+    hist_dir = _get_history_dir()
+    fpath = hist_dir / fname
+    try:
+        with open(fpath, "w", encoding="utf-8") as f:
+            json.dump(entry_full, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log.error("Ошибка записи истории: %s", e)
+        return
+
+    index_entries = _read_history_index()
+    count = len(filtered_routes or routes or [])
+    index_entries.append({
+        "timestamp": blob["timestamp"],
+        "fileType": file_type,
+        "filename": fname,
+        "routeCategory": route_category or "ШК",
+        "count": count,
+    })
+
+    # Только текущий месяц
+    current_month = _current_month_str()
+    index_entries = [e for e in index_entries if (e.get("timestamp") or "")[:7] == current_month]
+    _write_history_index(index_entries)
+
+    # Удаляем файлы записей из прошлых месяцев
+    kept = {e.get("filename") for e in index_entries}
+    for f in hist_dir.glob("entry_*.json"):
+        if f.name != _INDEX_FILENAME and f.name not in kept:
+            try:
+                f.unlink()
+            except OSError:
+                pass
 
 
 def get_last_routes(file_type: str) -> dict | None:
@@ -776,19 +922,59 @@ def clear_last_routes() -> None:
     _ensure_loaded()
     _data["last_main_routes"] = None
     _data["last_increase_routes"] = None
-    _data["routes_history"] = []
     _dirty = True
     _flush()
+
+    hist_dir = _get_history_dir()
+    if hist_dir.exists():
+        try:
+            for f in hist_dir.iterdir():
+                f.unlink()
+        except OSError as e:
+            log.warning("Ошибка очистки истории: %s", e)
 
 
 def get_routes_history(file_type: str | None = None) -> list[dict]:
     """
-    Возвращает историю сохранений маршрутов (новые сверху).
+    Возвращает метаданные истории (новые сверху). Только за текущий месяц.
     file_type: "main" | "increase" | None (все).
+    Каждый элемент: {timestamp, fileType, filename, routeCategory, count}.
     """
     _ensure_loaded()
-    history = list(_data.get("routes_history") or [])
+    index_entries = _read_history_index()
+    current_month = _current_month_str()
+    index_entries = [e for e in index_entries if (e.get("timestamp") or "")[:7] == current_month]
     if file_type in ("main", "increase"):
-        history = [h for h in history if h.get("fileType") == file_type]
-    history.reverse()
-    return history
+        index_entries = [e for e in index_entries if e.get("fileType") == file_type]
+    index_entries.reverse()
+    return index_entries
+
+
+def load_routes_history_entry(filename: str) -> dict | None:
+    """Загружает полную запись истории по имени файла."""
+    hist_dir = _get_history_dir()
+    fpath = hist_dir / filename
+    if not fpath.exists() or fpath.name == _INDEX_FILENAME:
+        return None
+    try:
+        with open(fpath, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        log.warning("Ошибка загрузки записи истории %s: %s", filename, e)
+        return None
+
+
+def delete_routes_history_entry(filename: str) -> bool:
+    """Удаляет запись истории по имени файла. Возвращает True при успехе."""
+    hist_dir = _get_history_dir()
+    index_entries = _read_history_index()
+    index_entries = [e for e in index_entries if e.get("filename") != filename]
+    _write_history_index(index_entries)
+    fpath = hist_dir / filename
+    if fpath.exists() and fpath.name != _INDEX_FILENAME:
+        try:
+            fpath.unlink()
+            return True
+        except OSError as e:
+            log.warning("Ошибка удаления файла истории %s: %s", filename, e)
+    return False

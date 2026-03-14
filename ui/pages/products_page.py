@@ -15,68 +15,14 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QTableWidget,
-    QTableWidgetItem, QHeaderView, QMessageBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
     QGroupBox, QLineEdit, QComboBox, QScrollArea, QFrame,
+    QTabWidget, QMenu, QWidgetAction,
 )
-from PyQt6.QtCore import Qt, QMimeData
-from PyQt6.QtGui import QFont, QDrag
+from PyQt6.QtCore import Qt
 
 from core import data_store
 from ui.widgets import hint_icon_button
-
-MIME_PRODUCT_NAME = "application/x-marshruty-product-name"
-
-
-class LeftProductsList(QListWidget):
-    """Список слева: можно перетащить элемент на правый список для связки."""
-    def startDrag(self, supportedActions):
-        item = self.currentItem()
-        if not item:
-            return
-        name = item.data(Qt.ItemDataRole.UserRole)
-        if not name:
-            return
-        mime = QMimeData()
-        mime.setText(name)
-        mime.setData(MIME_PRODUCT_NAME, name.encode("utf-8"))
-        drag = QDrag(self)
-        drag.setMimeData(mime)
-        drag.exec(Qt.DropAction.CopyAction)
-
-
-class RightProductsList(QListWidget):
-    """Список справа: принимает перетаскивание — создаёт связку вариант → канонический."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAcceptDrops(True)
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasFormat(MIME_PRODUCT_NAME) or event.mimeData().hasText():
-            event.acceptProposedAction()
-
-    def dropEvent(self, event):
-        if not event.mimeData().hasFormat(MIME_PRODUCT_NAME) and not event.mimeData().hasText():
-            super().dropEvent(event)
-            return
-        variant = None
-        if event.mimeData().hasFormat(MIME_PRODUCT_NAME):
-            variant = event.mimeData().data(MIME_PRODUCT_NAME).data().decode("utf-8")
-        else:
-            variant = event.mimeData().text()
-        item = self.itemAt(event.position().toPoint())
-        if not item:
-            event.ignore()
-            return
-        canonical = item.data(Qt.ItemDataRole.UserRole)
-        if not canonical or variant == canonical:
-            event.ignore()
-            return
-        # Связка создаётся через родительский диалог
-        parent_dlg = self.window()
-        if hasattr(parent_dlg, "_on_drop_link"):
-            parent_dlg._on_drop_link(variant, canonical)
-        event.accept()
 
 
 class ProductsDialog(QDialog):
@@ -95,13 +41,6 @@ class ProductsDialog(QDialog):
     # ─────────────────────────── UI ───────────────────────────────────────
 
     def _build_ui(self):
-        # Страховочный импорт QComboBox (фильтр по отделу)
-        from PyQt6.QtWidgets import QComboBox
-        # Списки создаём сразу, чтобы _refresh() и слоты всегда могли на них опереться
-        self.left_box = QGroupBox("Без отдела")
-        self.list_new = LeftProductsList()
-        self.list_canonical = RightProductsList()
-
         content = QWidget()
         lay = QVBoxLayout(content)
         lay.setContentsMargins(20, 16, 20, 16)
@@ -111,13 +50,12 @@ class ProductsDialog(QDialog):
         title_row.addWidget(QLabel("Справочник продуктов"))
         title_row.addWidget(hint_icon_button(
             self,
-            "Без отдела — связка вариантов. Алиасы: вариант → каноническое.",
+            "Единая таблица с вкладками. Алиасы: вариант (каноническое).",
             "Инструкция — Справочник продуктов\n\n"
-            "1. «Без отдела» (слева) — продукты без привязки к отделу. Появляется после обработки файлов.\n"
-            "2. Свяжите вариант с каноническим: выберите слева и справа, нажмите «Связать» или перетащите элемент слева на правый.\n"
-            "3. «Привязанные к отделам» (справа) — канонические продукты.\n"
-            "4. Таблица алиасов внизу: вариант написания → каноническое. Кнопка «✕» удаляет связку.\n"
-            "5. «Удалить выбранные» — удаление продуктов из справочника (по выбору в левом или правом списке).\n"
+            "1. Вкладки: «Все», «Без отдела», «По отделам».\n"
+            "2. Для продуктов без отдела: [В отдел] — привязка к отделу, [Связать с ▼] — создать алиас.\n"
+            "3. Таблица алиасов внизу: вариант (каноническое). Кнопка «✕» удаляет связку.\n"
+            "4. Кнопка «✕» в строке — удаление продукта из справочника.\n"
             "Настройки количества в штуках — в меню «Настройки» → «Настройки Количества».",
             "Инструкция",
         ))
@@ -125,9 +63,9 @@ class ProductsDialog(QDialog):
         lay.addLayout(title_row)
 
         hint = QLabel(
-            "Блок «Без отдела» появляется только после обработки файлов, если вы добавили продукты как «Новый продукт». "
-            "Свяжите вариант с каноническим (кнопка «Связать» или перетаскивание) — при следующих запусках это написание будет подставляться автоматически. "
-            "Таблица алиасов внизу: вариант написания → каноническое название; кнопка ✕ удаляет связку."
+            "Единая таблица: вкладки «Все», «Без отдела», «По отделам». "
+            "Для продуктов без отдела — кнопки «В отдел» и «Связать с» (создать алиас). "
+            "Таблица алиасов внизу: вариант (каноническое); кнопка ✕ удаляет связку."
         )
         hint.setWordWrap(True)
         hint.setObjectName("hintLabel")
@@ -151,69 +89,47 @@ class ProductsDialog(QDialog):
         filter_row.addStretch()
         lay.addLayout(filter_row)
 
-        # Левый блок (без отдела) — контейнер, видимость по данным
-        lists_row = QHBoxLayout()
-        lists_row.setSpacing(12)
+        # Единая таблица с вкладками (2A)
+        self.tab_widget = QTabWidget()
+        for _ in range(3):
+            tab = QWidget()
+            tab.setLayout(QVBoxLayout())
+            tab.layout().setContentsMargins(0, 0, 0, 0)
+            self.tab_widget.addTab(tab, "")
+        self.tab_widget.setTabText(0, "Все")
+        self.tab_widget.setTabText(1, "Без отдела")
+        self.tab_widget.setTabText(2, "По отделам")
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
 
-        left_lay = QVBoxLayout(self.left_box)
-        self.list_new.setMinimumHeight(400)
-        self.list_new.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
-        self.list_new.setAlternatingRowColors(True)
-        self.list_new.setDragEnabled(True)
-        self.list_new.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.list_new.customContextMenuRequested.connect(self._on_list_context_menu)
-        left_lay.addWidget(self.list_new)
-        lists_row.addWidget(self.left_box, 1)
+        self.products_table = QTableWidget(0, 4)
+        self.products_table.setHorizontalHeaderLabels(["Название", "Отдел", "Ед. изм.", "Действия"])
+        self.products_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.products_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.products_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.products_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.products_table.setColumnWidth(3, 220)
+        self.products_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.products_table.setAlternatingRowColors(True)
+        self.products_table.setMinimumHeight(400)
+        self.products_table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
 
-        self.mid_widget = QWidget()
-        mid_lay = QVBoxLayout(self.mid_widget)
-        mid_lay.addStretch()
-        self.btn_link = QPushButton("Связать\n→")
-        self.btn_link.setObjectName("btnPrimary")
-        self.btn_link.setFixedWidth(80)
-        self.btn_link.clicked.connect(self._on_link)
-        mid_lay.addWidget(self.btn_link)
-        mid_lay.addStretch()
-        lists_row.addWidget(self.mid_widget)
-
-        right_box = QGroupBox("Привязанные к отделам (канонические)")
-        right_lay = QVBoxLayout(right_box)
-        self.list_canonical.setMinimumHeight(400)
-        self.list_canonical.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
-        self.list_canonical.setAlternatingRowColors(True)
-        self.list_canonical.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.list_canonical.customContextMenuRequested.connect(self._on_list_context_menu)
-        right_lay.addWidget(self.list_canonical)
-        lists_row.addWidget(right_box, 1)
-
-        lay.addLayout(lists_row)
-
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        self.btn_delete = QPushButton("Удалить выбранные из справочника")
-        self.btn_delete.setObjectName("btnDanger")
-        self.btn_delete.setMinimumWidth(220)
-        self.btn_delete.clicked.connect(self._on_delete_from_ref)
-        btn_row.addWidget(self.btn_delete)
-        lay.addLayout(btn_row)
+        self.tab_widget.widget(0).layout().addWidget(self.products_table)
+        lay.addWidget(self.tab_widget)
 
         alias_box = QGroupBox("Связки (алиасы): вариант написания → каноническое название")
         alias_lay = QVBoxLayout(alias_box)
 
-        self.alias_table = QTableWidget(0, 3)
+        self.alias_table = QTableWidget(0, 2)
         self.alias_table.setHorizontalHeaderLabels(
-            ["Вариант написания", "→ Каноническое название", ""]
+            ["Вариант (каноническое)", ""]
         )
         self.alias_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
         self.alias_table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
+            1, QHeaderView.ResizeMode.Fixed
         )
-        self.alias_table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.Fixed
-        )
-        self.alias_table.setColumnWidth(2, 60)
+        self.alias_table.setColumnWidth(1, 60)
         self.alias_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.alias_table.setAlternatingRowColors(True)
         self.alias_table.setMinimumHeight(320)
@@ -238,6 +154,14 @@ class ProductsDialog(QDialog):
 
     # ─────────────────────────── Данные ───────────────────────────────────
 
+    def _on_tab_changed(self, index: int):
+        """При смене вкладки — переключаем таблицу и обновляем данные."""
+        tab = self.tab_widget.widget(index)
+        if self.products_table.parent() != tab:
+            self.products_table.setParent(tab)
+            tab.layout().addWidget(self.products_table)
+        self._apply_filters()
+
     def _refresh(self):
         """Перезагружает данные, сохраняет полные списки и применяет фильтры."""
         products = data_store.get_ref("products") or []
@@ -255,11 +179,6 @@ class ProductsDialog(QDialog):
             key=lambda p: p["name"].lower()
         )
 
-        # Блок «Без отдела» и кнопка «Связать» — только при наличии непривязанных продуктов
-        has_unassigned = len(self._new_prods) > 0
-        self.left_box.setVisible(has_unassigned)
-        self.mid_widget.setVisible(has_unassigned)
-
         self._apply_filters()
 
         self.alias_table.setUpdatesEnabled(False)
@@ -267,23 +186,23 @@ class ProductsDialog(QDialog):
         for variant, canonical in sorted(aliases.items()):
             row = self.alias_table.rowCount()
             self.alias_table.insertRow(row)
-            self.alias_table.setItem(row, 0, QTableWidgetItem(variant))
-            self.alias_table.setItem(row, 1, QTableWidgetItem(canonical))
+            self.alias_table.setItem(row, 0, QTableWidgetItem(f"{variant} ({canonical})"))
 
             btn_del = QPushButton("✕")
             btn_del.setObjectName("btnIconDanger")
             btn_del.setFixedSize(36, 28)
             btn_del.clicked.connect(lambda _, v=variant: self._on_remove_alias(v))
-            self.alias_table.setCellWidget(row, 2, btn_del)
+            self.alias_table.setCellWidget(row, 1, btn_del)
 
         self.alias_table.setUpdatesEnabled(True)
 
     def _apply_filters(self):
-        """Фильтрует списки по поиску и отделу и заполняет виджеты."""
+        """Фильтрует по вкладке, поиску и отделу, заполняет таблицу."""
         search = (self.search_edit.text() or "").strip().lower()
         dept_key = self.combo_dept_filter.currentData()
         if dept_key is None:
             dept_key = ""
+        tab_idx = self.tab_widget.currentIndex()
 
         new_filtered = [
             p for p in (getattr(self, "_new_prods", []) or [])
@@ -295,50 +214,112 @@ class ProductsDialog(QDialog):
             and (not search or search in p["name"].lower())
         ]
 
-        self.list_new.clear()
-        for p in new_filtered:
-            item = QListWidgetItem(f"{p['name']}  ({p.get('unit', '')})")
-            item.setData(Qt.ItemDataRole.UserRole, p["name"])
-            self.list_new.addItem(item)
+        if tab_idx == 0:
+            rows_data = new_filtered + canonical_filtered
+        elif tab_idx == 1:
+            rows_data = new_filtered
+        else:
+            rows_data = canonical_filtered
 
-        self.list_canonical.clear()
-        for p in canonical_filtered:
-            item = QListWidgetItem(f"{p['name']}  ({p.get('unit', '')})")
-            item.setData(Qt.ItemDataRole.UserRole, p["name"])
-            self.list_canonical.addItem(item)
+        rows_data.sort(key=lambda p: p["name"].lower())
+
+        self._populate_products_table(rows_data)
+
+    def _populate_products_table(self, rows_data: list):
+        """Заполняет таблицу продуктов. rows_data: список {name, unit, deptKey?}."""
+        canonical_names = {p["name"] for p in (getattr(self, "_canonical_prods", []) or [])}
+
+        self.products_table.setUpdatesEnabled(False)
+        self.products_table.setRowCount(0)
+
+        for p in rows_data:
+            row = self.products_table.rowCount()
+            self.products_table.insertRow(row)
+            name = p.get("name", "")
+            unit = p.get("unit", "")
+            dept_key = p.get("deptKey") or ""
+            is_unassigned = not dept_key
+
+            # Название: "название (ед. изм.)" — продукты в таблице не являются алиасами
+            name_txt = f"{name} ({unit})" if unit else name
+            name_item = QTableWidgetItem(name_txt)
+            name_item.setData(Qt.ItemDataRole.UserRole, name)
+            self.products_table.setItem(row, 0, name_item)
+
+            dept_txt = data_store.get_department_display_name(dept_key) if dept_key else "—"
+            self.products_table.setItem(row, 1, QTableWidgetItem(dept_txt))
+            self.products_table.setItem(row, 2, QTableWidgetItem(unit or ""))
+
+            # Действия
+            actions_widget = QWidget()
+            actions_lay = QHBoxLayout(actions_widget)
+            actions_lay.setContentsMargins(2, 4, 2, 4)
+            actions_lay.setSpacing(4)
+
+            if is_unassigned:
+                btn_dept = QPushButton("В отдел")
+                btn_dept.setObjectName("btnPrimary")
+                btn_dept.setFixedHeight(28)
+                btn_dept.clicked.connect(lambda _, n=name, b=btn_dept: self._on_assign_dept(n, b))
+                actions_lay.addWidget(btn_dept)
+
+                combo_link = QComboBox()
+                combo_link.addItem("Связать с ▼", None)
+                for c in canonical_names:
+                    if c != name:
+                        combo_link.addItem(c, c)
+                combo_link.currentIndexChanged.connect(
+                    lambda idx, n=name, cb=combo_link: self._on_link_combo_changed(n, cb)
+                )
+                combo_link.setFixedHeight(28)
+                combo_link.setMinimumWidth(140)
+                actions_lay.addWidget(combo_link)
+
+            btn_del = QPushButton("✕")
+            btn_del.setObjectName("btnIconDanger")
+            btn_del.setFixedSize(36, 28)
+            btn_del.clicked.connect(lambda _, n=name: self._on_delete_product(n))
+            actions_lay.addWidget(btn_del)
+
+            actions_lay.addStretch()
+            self.products_table.setCellWidget(row, 3, actions_widget)
+
+        self.products_table.setUpdatesEnabled(True)
 
     # ─────────────────────────── Действия ─────────────────────────────────
 
-    def _on_drop_link(self, variant: str, canonical: str):
-        """Вызывается при перетаскивании слева на правый список."""
-        data_store.set_alias(variant, canonical)
+    def _on_assign_dept(self, product_name: str, button: QPushButton):
+        """Кнопка «В отдел» — меню выбора отдела."""
+        menu = QMenu(self)
+        for key, display_name in data_store.get_department_choices():
+            if not key:
+                continue
+            action = menu.addAction(display_name)
+            action.triggered.connect(
+                lambda checked=False, k=key: self._do_assign_dept(product_name, k)
+            )
+        menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
+
+    def _do_assign_dept(self, product_name: str, dept_key: str):
+        data_store.update_product(product_name, deptKey=dept_key)
         self._refresh()
 
-    def _on_link(self):
-        left_items  = self.list_new.selectedItems()
-        right_items = self.list_canonical.selectedItems()
+    def _on_link_combo_changed(self, variant: str, combo: QComboBox):
+        canonical = combo.currentData()
+        if canonical and variant != canonical:
+            data_store.set_alias(variant, canonical)
+            self._refresh()
 
-        if not left_items:
-            QMessageBox.information(
-                self, "Выбор",
-                "Выберите одно или несколько названий в левом списке."
-            )
-            return
-        if not right_items:
-            QMessageBox.information(
-                self, "Выбор",
-                "Выберите каноническое название в правом списке."
-            )
-            return
-
-        canonical = right_items[0].data(Qt.ItemDataRole.UserRole)
-        variants  = [i.data(Qt.ItemDataRole.UserRole) for i in left_items]
-
-        for variant in variants:
-            if variant != canonical:
-                data_store.set_alias(variant, canonical)
-
-        self._refresh()
+    def _on_delete_product(self, name: str):
+        reply = QMessageBox.question(
+            self, "Удалить из справочника",
+            f"Удалить «{name}» из справочника?\n\nБудут удалены все связанные алиасы.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes and data_store.remove_product(name):
+            self._refresh()
+            QMessageBox.information(self, "Готово", "Удалено из справочника.")
 
     def _has_unassigned_products(self) -> bool:
         products = data_store.get_ref("products") or []
@@ -360,41 +341,9 @@ class ProductsDialog(QDialog):
                 self.app_state["open_departments_after_products"] = True
         self.accept()
 
-    def _on_delete_from_ref(self):
-        """Удаляет выбранные продукты из справочника (и связанные алиасы)."""
-        left = [i.data(Qt.ItemDataRole.UserRole) for i in self.list_new.selectedItems()]
-        right = [i.data(Qt.ItemDataRole.UserRole) for i in self.list_canonical.selectedItems()]
-        names = list(dict.fromkeys(left + right))
-        if not names:
-            QMessageBox.information(
-                self, "Выбор",
-                "Выберите один или несколько продуктов в левом или правом списке."
-            )
-            return
-        reply = QMessageBox.question(
-            self, "Удалить из справочника",
-            f"Удалить из справочника полностью: {len(names)} шт.?\n\n"
-            "Будут удалены все связанные алиасы (связки вариантов с этим продуктом).",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-        removed = 0
-        for name in names:
-            if data_store.remove_product(name):
-                removed += 1
-        self._refresh()
-        if removed:
-            QMessageBox.information(self, "Готово", f"Удалено из справочника: {removed}.")
-
     def _on_remove_alias(self, variant: str):
         data_store.remove_alias(variant)
         self._refresh()
-
-    def _on_list_context_menu(self, pos):
-        """Контекстное меню по ПКМ на элементе списка (пока пусто — настройки Шт в «Настройки Количества»)."""
-        pass
 
     def refresh(self):
         self._refresh()

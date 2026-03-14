@@ -88,10 +88,10 @@ def _cell_str_cached(cache: list[list[tuple[int, Any]]], row: int, col: int) -> 
 def _find_footer_start_row(cache: list[list[tuple[int, Any]]], nrows: int) -> int | None:
     """
     Находит первую строку подвала, сканируя с конца файла.
-    Маркеры: «итого», «всего учетных». Проверяет столбцы A и B.
+    Маркеры: «итого», «итого:», «всего учетных». Проверяет столбцы A, B, C.
     """
     for r in range(nrows - 1, -1, -1):
-        for col in (0, 1):
+        for col in (0, 1, 2):
             cell_val = _cell_str_cached(cache, r, col).strip()
             if not cell_val:
                 continue
@@ -163,6 +163,8 @@ def parse_file(file_path: str) -> dict[str, Any]:
 
     for i, route_row in enumerate(route_rows):
         address = _cell_str_cached(cell_cache, route_row, 1).strip()
+        if not address or "итого" in address.lower():
+            continue
         route_num = extract_route_number(address) if address else "Номер маршрута не определен"
 
         next_route_row = route_rows[i + 1] if i + 1 < len(route_rows) else nrows

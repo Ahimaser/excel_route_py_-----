@@ -32,8 +32,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Маршруты, Сборка")
-        self.setMinimumSize(1150, 760)
-        self.resize(1280, 820)
+        self.setMinimumSize(1000, 620)
+        self.resize(1100, 700)
 
         # Состояние приложения (передаётся между страницами). Папка сохранения загружается из хранилища.
         save_dir = data_store.get_setting("defaultSaveDir")
@@ -69,6 +69,7 @@ class MainWindow(QMainWindow):
 
         # Стек страниц
         self.stack = QStackedWidget()
+        self.stack.setMinimumSize(900, 500)
         root_layout.addWidget(self.stack)
 
         # Строка состояния (как в Excel)
@@ -84,9 +85,9 @@ class MainWindow(QMainWindow):
     def _make_header(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("headerBar")
-        bar.setFixedHeight(32)
+        bar.setFixedHeight(28)
         lay = QHBoxLayout(bar)
-        lay.setContentsMargins(8, 0, 8, 0)
+        lay.setContentsMargins(6, 0, 6, 0)
         lay.setSpacing(0)
 
         # Вкладки ленты (как в Excel)
@@ -100,6 +101,7 @@ class MainWindow(QMainWindow):
         self.ribbon_tabs.currentChanged.connect(self._on_ribbon_tab_changed)
         lay.addWidget(self.ribbon_tabs)
 
+        self._update_routes_dependent_tabs()
         lay.addStretch()
 
         # Кнопка подсказки справа в ленте
@@ -114,7 +116,20 @@ class MainWindow(QMainWindow):
 
     def _on_ribbon_tab_changed(self, index: int):
         if 0 <= index < len(self.RIBBON_PAGES):
+            if not self.ribbon_tabs.isTabEnabled(index):
+                return
             self.navigate_to.emit(self.RIBBON_PAGES[index])
+
+    def _update_routes_dependent_tabs(self) -> None:
+        """Включает/выключает вкладки Этикетки, Общие маршруты, По отделам — только при наличии маршрутов."""
+        routes = self.app_state.get("filteredRoutes") or self.app_state.get("routes") or []
+        active = sum(1 for r in routes if not r.get("excluded"))
+        has_routes = active > 0
+        hint_disabled = "Сначала добавьте информацию о маршрутах"
+        for i, name in enumerate(self.RIBBON_PAGES):
+            if name in ("labels", "preview_general", "preview_dept"):
+                self.ribbon_tabs.setTabEnabled(i, has_routes)
+                self.ribbon_tabs.setTabToolTip(i, hint_disabled if not has_routes else "")
 
     def set_ribbon_page(self, page_name: str):
         """Устанавливает активную вкладку ленты по имени страницы (вызывается из app.navigate)."""

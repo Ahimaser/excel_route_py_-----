@@ -1,18 +1,19 @@
 """
 dashboard_page.py — Главная страница приложения (дашборд).
+
+Рекомендованный вариант A: сетка из 6 карточек быстрых действий.
 """
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 if __name__ == "__main__":
-    # При запуске файла как скрипта добавляем корень проекта в sys.path
     _root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(_root))
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QMessageBox, QGridLayout, QScrollArea,
+    QFrame, QGridLayout, QScrollArea, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -20,18 +21,19 @@ from core import data_store
 
 
 class DashboardPage(QWidget):
-    """Главная страница с карточками действий."""
+    """Главная страница с карточками быстрых действий."""
 
-    open_history      = pyqtSignal()
-    clear_last_routes = pyqtSignal()
-    open_rounding_settings = pyqtSignal()
+    open_history = pyqtSignal()
+    go_process_files = pyqtSignal()
+    go_last_main = pyqtSignal()
+    go_last_increase = pyqtSignal()
+    go_labels = pyqtSignal()
+    go_clear = pyqtSignal()
 
     def __init__(self, app_state: dict):
         super().__init__()
         self.app_state = app_state
         self._build_ui()
-
-    # ─────────────────────────── UI ───────────────────────────────────
 
     def _build_ui(self):
         scroll = QScrollArea()
@@ -44,67 +46,84 @@ class DashboardPage(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(scroll)
         inner = QVBoxLayout(content)
-        inner.setContentsMargins(48, 40, 48, 40)
-        inner.setSpacing(32)
+        inner.setContentsMargins(24, 20, 24, 20)
+        inner.setSpacing(16)
         scroll.setWidget(content)
 
-        # Заголовок
         title = QLabel("Маршруты, Сборка")
         title.setObjectName("sectionTitle")
         inner.addWidget(title)
 
         hint = QLabel(
-            "Откройте историю сохранённых маршрутов. Обработка файлов и этикетки — через вкладки ленты или меню Файл."
+            "Быстрый доступ к основным действиям. Обработка файлов и этикетки — через вкладки ленты или карточки ниже."
         )
         hint.setObjectName("stepLabel")
         hint.setWordWrap(True)
         inner.addWidget(hint)
 
         grid = QGridLayout()
-        grid.setSpacing(16)
+        grid.setSpacing(10)
 
         self._card_history = self._make_card(
             "📋", "История",
             "Открыть историю маршрутов (Основные и Увеличение)",
-            "btnPrimary", self.open_history.emit
+            "btnPrimary", self.open_history.emit, "history"
         )
         grid.addWidget(self._card_history, 0, 0)
 
+        self._card_process = self._make_card(
+            "📂", "Обработать файлы",
+            "Загрузить XLS-файлы и создать маршруты",
+            "btnSecondary", self.go_process_files.emit, "process"
+        )
+        grid.addWidget(self._card_process, 0, 1)
+
+        self._card_last_main = self._make_card(
+            "📄", "Последние (основной)",
+            "Открыть последние сохранённые маршруты основного типа",
+            "btnSecondary", self.go_last_main.emit, "last_main"
+        )
+        grid.addWidget(self._card_last_main, 0, 2)
+
+        self._card_last_inc = self._make_card(
+            "📄", "Последние (довоз)",
+            "Открыть последние сохранённые маршруты довоза",
+            "btnSecondary", self.go_last_increase.emit, "last_inc"
+        )
+        grid.addWidget(self._card_last_inc, 1, 0)
+
+        self._card_labels = self._make_card(
+            "🏷️", "Этикетки",
+            "Создать этикетки по шаблонам продуктов",
+            "btnSecondary", self.go_labels.emit, "labels"
+        )
+        grid.addWidget(self._card_labels, 1, 1)
+
+        self._card_clear = self._make_card(
+            "🗑️", "Очистить",
+            "Удалить сохранённые маршруты из памяти",
+            "btnDanger", self.go_clear.emit, "clear"
+        )
+        grid.addWidget(self._card_clear, 1, 2)
+
         inner.addLayout(grid)
-
-        # Нижняя панель с дополнительными действиями
-        bottom_row = QHBoxLayout()
-        bottom_row.addStretch()
-
-        btn_rounding = QPushButton("Настройки Количества")
-        btn_rounding.setObjectName("btnSecondary")
-        btn_rounding.setMinimumWidth(260)
-        btn_rounding.clicked.connect(self.open_rounding_settings.emit)
-        bottom_row.addWidget(btn_rounding)
-
-        btn_clear = QPushButton("Очистить историю")
-        btn_clear.setObjectName("btnDanger")
-        btn_clear.setMinimumWidth(220)
-        btn_clear.clicked.connect(self._on_clear_last)
-        bottom_row.addWidget(btn_clear)
-
-        inner.addLayout(bottom_row)
-
         inner.addStretch()
 
     def _make_card(self, icon: str, title: str, desc: str,
-                   btn_style: str, on_click) -> QFrame:
+                   btn_style: str, on_click, card_key: str) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
+        card.setProperty("cardKey", card_key)
         card.setCursor(Qt.CursorShape.PointingHandCursor)
+        card.setMinimumWidth(180)
         card_lay = QVBoxLayout(card)
-        card_lay.setContentsMargins(24, 20, 24, 20)
-        card_lay.setSpacing(12)
+        card_lay.setContentsMargins(16, 12, 16, 12)
+        card_lay.setSpacing(8)
 
         lbl_icon = QLabel(icon)
         lbl_icon.setObjectName("dropZoneIcon")
         lbl_icon.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        lbl_icon.setStyleSheet("font-size: 28px;")
+        lbl_icon.setStyleSheet("font-size: 22px;")
         card_lay.addWidget(lbl_icon)
 
         lbl_title = QLabel(title)
@@ -115,48 +134,56 @@ class DashboardPage(QWidget):
         lbl_desc = QLabel(desc)
         lbl_desc.setObjectName("stepLabel")
         lbl_desc.setWordWrap(True)
-        lbl_desc.setStyleSheet("font-size: 12px;")
+        lbl_desc.setStyleSheet("font-size: 10px;")
         card_lay.addWidget(lbl_desc)
 
         card_lay.addStretch()
 
         btn = QPushButton(title)
         btn.setObjectName(btn_style)
-        btn.setFixedHeight(40)
-        btn.setMinimumWidth(180)
+        btn.setFixedHeight(32)
+        btn.setMinimumWidth(160)
+        btn.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
         btn.clicked.connect(on_click)
+        btn.setProperty("cardKey", card_key)
         card_lay.addWidget(btn)
 
         return card
 
-    # ─────────────────────────── Обновление ───────────────────────────
-
     def refresh(self):
-        """Обновляет подсказки и доступность карточки «История»."""
+        """Обновляет подсказки и доступность карточек."""
         main_hist = data_store.get_routes_history("main")
         inc_hist = data_store.get_routes_history("increase")
         total = len(main_hist) + len(inc_hist)
+        main_data = data_store.get_last_routes("main")
+        inc_data = data_store.get_last_routes("increase")
+        has_main = main_data is not None and bool(main_data.get("routes") or main_data.get("filteredRoutes"))
+        has_inc = inc_data is not None and bool(inc_data.get("routes") or inc_data.get("filteredRoutes"))
 
+        # История
         if total > 0:
             tip = f"Основные: {len(main_hist)}, Увеличение: {len(inc_hist)}. Выберите сохранение из списка."
-            self._card_history.setToolTip(tip)
-            for w in self._card_history.findChildren(QPushButton):
-                w.setEnabled(True)
-                w.setToolTip(tip)
-                break
+            self._set_card_enabled(self._card_history, True, tip)
         else:
-            self._card_history.setToolTip("История пуста. Сначала обработайте файлы.")
-            for w in self._card_history.findChildren(QPushButton):
-                w.setEnabled(False)
-                break
+            self._set_card_enabled(self._card_history, False, "История пуста. Сначала обработайте файлы.")
 
-    def _on_clear_last(self):
-        reply = QMessageBox.question(
-            self, "Очистить историю",
-            "Удалить всю историю маршрутов (основной и довоз)?\n"
-            "После этого кнопки «История» не будут открывать данные.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
+        # Последние (основной)
+        self._set_card_enabled(
+            self._card_last_main,
+            has_main,
+            "Открыть последние маршруты основного типа" if has_main else "Нет сохранённых маршрутов. Сначала обработайте файлы."
         )
-        if reply == QMessageBox.StandardButton.Yes:
-            self.clear_last_routes.emit()
+
+        # Последние (довоз)
+        self._set_card_enabled(
+            self._card_last_inc,
+            has_inc,
+            "Открыть последние маршруты довоза" if has_inc else "Нет сохранённых маршрутов. Сначала обработайте файлы."
+        )
+
+    def _set_card_enabled(self, card: QFrame, enabled: bool, tooltip: str):
+        card.setToolTip(tooltip)
+        for w in card.findChildren(QPushButton):
+            w.setEnabled(enabled)
+            w.setToolTip(tooltip)
+            break

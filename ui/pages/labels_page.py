@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QFileDialog,
+    QSplitter,
 )
 
 from core import data_store
@@ -83,8 +84,8 @@ class LabelsPage(QWidget):
         outer.addWidget(scroll)
 
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(48, 40, 48, 40)
-        lay.setSpacing(16)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(12)
 
         row = QHBoxLayout()
         btn_back = QPushButton("← Назад")
@@ -125,12 +126,13 @@ class LabelsPage(QWidget):
         self.main_frame = QFrame()
         self.main_frame.setObjectName("card")
         main_lay = QVBoxLayout(self.main_frame)
-        main_lay.setContentsMargins(16, 14, 16, 14)
+        main_lay.setContentsMargins(16, 12, 16, 12)
         main_lay.setSpacing(10)
 
         filters = QHBoxLayout()
         filters.addWidget(QLabel("Отдел / подотдел:"))
         self.combo_dept = QComboBox()
+        self.combo_dept.setMinimumWidth(200)
         self.combo_dept.currentIndexChanged.connect(self._on_dept_changed)
         filters.addWidget(self.combo_dept, 1)
         filters.addWidget(QLabel("Тип:"))
@@ -140,31 +142,54 @@ class LabelsPage(QWidget):
         filters.addWidget(self.combo_type)
         main_lay.addLayout(filters)
 
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        left_box = QFrame()
+        left_lay = QVBoxLayout(left_box)
+        left_lay.setContentsMargins(12, 12, 12, 12)
+        left_lay.addWidget(QLabel("Продукты"))
         self.products_list = QListWidget()
+        self.products_list.setMinimumWidth(220)
         self.products_list.currentItemChanged.connect(self._on_product_changed)
         self.products_list.itemDoubleClicked.connect(self._on_product_double_clicked)
-        main_lay.addWidget(self.products_list, 1)
+        left_lay.addWidget(self.products_list, 1)
+        splitter.addWidget(left_box)
 
+        right_box = QFrame()
+        right_lay = QVBoxLayout(right_box)
+        right_lay.setContentsMargins(8, 8, 8, 8)
+        right_lay.setSpacing(8)
+        right_lay.addWidget(QLabel("Действия"))
         self.lbl_selected = QLabel("Выберите продукт.")
         self.lbl_selected.setObjectName("hintLabel")
         self.lbl_selected.setWordWrap(True)
-        main_lay.addWidget(self.lbl_selected)
+        right_lay.addWidget(self.lbl_selected)
 
-        actions = QHBoxLayout()
         self.btn_assign_tpl = QPushButton("Добавить шаблон")
         self.btn_assign_tpl.setObjectName("btnSecondary")
         self.btn_assign_tpl.clicked.connect(self._on_assign_template)
-        actions.addWidget(self.btn_assign_tpl)
+        right_lay.addWidget(self.btn_assign_tpl)
         self.btn_preview = QPushButton("Предпросмотр")
         self.btn_preview.setObjectName("btnSecondary")
         self.btn_preview.clicked.connect(self._on_preview)
-        actions.addWidget(self.btn_preview)
+        right_lay.addWidget(self.btn_preview)
         self.btn_print = QPushButton("Печать этикеток")
         self.btn_print.setObjectName("btnPrimary")
         self.btn_print.clicked.connect(self._on_print)
-        actions.addWidget(self.btn_print)
-        actions.addStretch()
-        main_lay.addLayout(actions)
+        right_lay.addWidget(self.btn_print)
+        right_lay.addStretch()
+        splitter.addWidget(right_box)
+
+        splitter.setSizes([280, 200])
+        main_lay.addWidget(splitter, 1)
+
+        actions_row = QHBoxLayout()
+        btn_settings = QPushButton("Настройки этикеток")
+        btn_settings.setObjectName("btnSecondary")
+        btn_settings.clicked.connect(self._open_labels_settings)
+        actions_row.addWidget(btn_settings)
+        actions_row.addStretch()
+        main_lay.addLayout(actions_row)
 
         lay.addWidget(self.main_frame)
         lay.addStretch()
@@ -213,9 +238,8 @@ class LabelsPage(QWidget):
             self._update_selected_label()
             return
         for p in _products_for_dept(str(dept_key)):
-            text = p["name"]
-            if p["template"] and os.path.isfile(p["template"]):
-                text += "  [шаблон]"
+            has_tpl = bool(p.get("template") and os.path.isfile(p["template"]))
+            text = f"{'✓' if has_tpl else '✗'}  {p['name']}"
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, p)
             self.products_list.addItem(item)
@@ -265,6 +289,16 @@ class LabelsPage(QWidget):
             self.lbl_selected.setText(f"Продукт: {p['name']}. Шаблон: {os.path.basename(tpl)}")
         else:
             self.lbl_selected.setText(f"Продукт: {p['name']}. Шаблон не назначен.")
+
+    def _open_labels_settings(self) -> None:
+        try:
+            from ui.pages.labels_settings_dialog import open_labels_settings_dialog
+            open_labels_settings_dialog(self)
+            self._on_dept_changed()
+        except Exception:
+            import traceback
+            import logging
+            logging.getLogger("app").exception("labels_settings")
 
     def _on_assign_template(self) -> None:
         p = self._selected_product()

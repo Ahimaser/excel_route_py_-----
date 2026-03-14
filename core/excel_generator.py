@@ -1252,6 +1252,8 @@ def generate_labels_from_templates(
         prod = next((p for p in products_ref if p.get("name") == prod_name), None)
         if not prod:
             return True
+        if prod.get("showInDirty") and data_store.is_subdept_chistchenka(prod.get("deptKey")):
+            return False  # Продукты «В Грязные» (подотдел Чищенка) — этикетки не печатаем
         dept_key = prod.get("deptKey")
         if not dept_key:
             return False  # этикетки только для продуктов с отделом
@@ -1495,23 +1497,25 @@ def generate_labels_from_templates(
 def _fmt_qty_with_pcs(prod: dict) -> str:
     """Форматирует количество с опциональным значением шт.
     Использует displayQuantity (уже с учётом множителя замены), если задано.
+    Для полуфабрикатов (pcsTail): «pcs шт + tail unit».
     """
     qty = prod.get("displayQuantity", prod.get("quantity"))
-    unit = prod.get("unit", "")
+    unit = (prod.get("unit") or "").strip()
     pcs = prod.get("pcs")
+    tail = prod.get("pcsTail")
     if qty is None:
         return ""
-    qty_str = f"{qty} {unit}".strip() if unit else str(qty)
-    if pcs is not None:
-        tail = prod.get("pcsTail")
-        if tail is not None and unit:
+    if pcs is not None and tail is not None:
+        if tail > 1e-9 and unit:
             try:
                 tval = float(tail)
-                if tval > 1e-9:
-                    tail_txt = str(int(tval)) if abs(tval - round(tval)) < 1e-9 else f"{tval:.3f}".rstrip("0").rstrip(".")
-                    return f"{qty_str} / {pcs} шт + {tail_txt} {unit}"
+                tail_txt = str(int(tval)) if abs(tval - round(tval)) < 1e-9 else f"{tval:.3f}".rstrip("0").rstrip(".")
+                return f"{pcs} шт + {tail_txt} {unit}"
             except (TypeError, ValueError):
                 pass
+        return f"{pcs} шт"
+    qty_str = f"{qty} {unit}".strip() if unit else str(qty)
+    if pcs is not None:
         return f"{qty_str} / {pcs} шт"
     return qty_str
 
@@ -1524,6 +1528,7 @@ def generate_general_routes(
     save_path: str,
     products_settings: dict[str, dict],
     sort_asc: bool = True,
+    date_str: str | None = None,
 ) -> str:
     """
     Создаёт файл «Общие маршруты».
@@ -1552,7 +1557,7 @@ def generate_general_routes(
     _apply_page_margins(ws, for_labels=False)
     styles = _get_styles()
 
-    date_str = _format_date(_tomorrow())
+    date_str = date_str or _format_date(_tomorrow())
     type_lbl = _type_label(file_type)
     header_text = f"{date_str}  {type_lbl}"
 
@@ -1708,37 +1713,47 @@ def _write_dept_rows(
     type_lbl: str,
     styles: dict[str, xlwt.XFStyle],
     sort_asc: bool = False,
+    prod_map: dict | None = None,
 ) -> None:
     """
     Формат 2 (rows): строчный формат — строка маршрута + строки продуктов.
 
     Структура:
       Строка 1: заголовок (объединённая)
-      Строка 2: Маршрут | Адрес | Кол-во | Шт
-               (2-я строка заголовка: — | — | ед.изм. | шт)
-      Строка 3+: для каждого маршрута:
-        - строка маршрута: номер | адрес | — | —
-        - строки продуктов: — | название продукта | количество | шт_значение
+      Строка 2: Маршрут | Адрес | Кол-во | Шт [| Грязные]
+      Строка 3+: для каждого маршрута: строка маршрута + строки продуктов.
 
-    Маршруты отсортированы по убыванию номера.
+    При наличии продуктов с showInDirty добавляется колонка «Грязные» (×1,25).
     """
+    prod_map = prod_map or {}
+    has_dirty = any(
+        prod_map.get(p.get("name", ""), {}).get("showInDirty")
+        and data_store.is_subdept_chistchenka(prod_map.get(p.get("name", ""), {}).get("deptKey"))
+        for r in routes for p in r.get("products", [])
+    )
+    n_cols = 5 if has_dirty else 4
+    merge_cols = n_cols - 1
+
     # Строка 1: заголовок
-    ws.write_merge(0, 0, 0, 3, f"Маршруты по {dept_name} {date_str} {type_lbl}",
+    ws.write_merge(0, 0, 0, merge_cols, f"Маршруты по {dept_name} {date_str} {type_lbl}",
                    styles["title"])
 
-    # Строка 2: заголовки (первая строка)
+    # Строка 2: заголовки
     ws.write(1, 0, "Маршрут",    styles["header"])
     ws.write(1, 1, "Адрес",      styles["header"])
     ws.write(1, 2, "Кол-во",     styles["header"])
     ws.write(1, 3, "Шт",         styles["header"])
+    if has_dirty:
+        ws.write(1, 4, "Грязные", styles["header"])
 
-    # Строка 3: вторая строка заголовков (единицы измерения)
+    # Строка 3: единицы измерения
     ws.write(2, 0, "",           styles["header"])
     ws.write(2, 1, "",           styles["header"])
     ws.write(2, 2, "ед. изм.",   styles["header"])
     ws.write(2, 3, "шт",         styles["header"])
+    if has_dirty:
+        ws.write(2, 4, "",        styles["header"])
 
-    # Данные начинаются с строки 4 (индекс 3)
     routes_sorted = _sort_routes(routes, sort_asc)
     current_row = 3
 
@@ -1747,34 +1762,54 @@ def _write_dept_rows(
         route_num_str = str(route.get("routeNum", ""))
         address = route.get("address", "")
 
-        # Строка маршрута
         ws.write(current_row, 0, route_num_str, styles["cell"])
         ws.write(current_row, 1, address,       styles["cell_wrap"])
         ws.write(current_row, 2, "",            styles["cell"])
         ws.write(current_row, 3, "",            styles["cell"])
+        if has_dirty:
+            ws.write(current_row, 4, "",         styles["cell"])
         current_row += 1
 
-        # Строки продуктов
         for prod in products:
             pname = prod.get("name", "")
             qty   = prod.get("displayQuantity", prod.get("quantity"))
             pcs   = prod.get("pcs")
+            pcs_tail = prod.get("pcsTail")
             unit  = prod.get("unit", "")
 
             qty_str = f"{qty} {unit}".strip() if (qty is not None and unit) else (str(qty) if qty is not None else "")
-            pcs_str = str(pcs) if pcs is not None else ""
+            if pcs is not None:
+                if pcs_tail is not None and pcs_tail > 1e-9 and unit:
+                    tail_txt = str(int(pcs_tail)) if abs(pcs_tail - round(pcs_tail)) < 1e-9 else f"{pcs_tail:.3f}".rstrip("0").rstrip(".")
+                    pcs_str = f"{pcs} шт + {tail_txt} {unit}"
+                else:
+                    pcs_str = str(pcs)
+            else:
+                pcs_str = ""
 
             ws.write(current_row, 0, "",       styles["cell"])
             ws.write(current_row, 1, pname,    styles["cell"])
             ws.write(current_row, 2, qty_str,  styles["cell"])
             ws.write(current_row, 3, pcs_str,  styles["cell"])
+            if has_dirty:
+                dirty_val = ""
+                ps = prod_map.get(pname, {})
+                if ps.get("showInDirty") and data_store.is_subdept_chistchenka(ps.get("deptKey")):
+                    try:
+                        raw = float(prod.get("quantity", 0) or 0)
+                        dirty = raw * 1.25
+                        dirty_val = str(int(dirty)) if abs(dirty - round(dirty)) < 1e-9 else f"{dirty:.2f}"
+                    except (ValueError, TypeError):
+                        pass
+                ws.write(current_row, 4, dirty_val, styles["cell"])
             current_row += 1
 
-    # Ширина столбцов
     _set_col_width(ws, 0, 14)
     _set_col_width(ws, 1, 42)
     _set_col_width(ws, 2, 16)
     _set_col_width(ws, 3, 10)
+    if has_dirty:
+        _set_col_width(ws, 4, 12)
 
 
 # ─────────────────────────── Устаревший формат (совместимость) ────────────
@@ -1815,9 +1850,15 @@ def _get_col_label(col: dict) -> str:
 
 
 def _get_template(dept_key: str, templates: list[dict]) -> dict | None:
-    """Возвращает шаблон для отдела или None."""
+    """Возвращает шаблон для отдела или None. Поддерживает deptKeys (несколько отделов)."""
     for tmpl in templates:
-        if tmpl.get("deptKey") == dept_key:
+        dept_keys = tmpl.get("deptKeys") or ([tmpl.get("deptKey")] if tmpl.get("deptKey") else [])
+        if dept_key in dept_keys:
+            return tmpl
+    # Fallback: шаблон без привязки (deptKeys пустой)
+    for tmpl in templates:
+        dept_keys = tmpl.get("deptKeys") or []
+        if not dept_keys:
             return tmpl
     return templates[0] if templates else None
 
@@ -2072,12 +2113,14 @@ def _write_dept_by_format(
     template_cols: list[dict],
     styles: dict[str, xlwt.XFStyle],
     sort_asc: bool = False,
+    prod_map: dict | None = None,
 ) -> None:
     """Выбирает нужную функцию записи в зависимости от формата шаблона."""
+    prod_map = prod_map or {}
     if fmt == "wide":
         _write_dept_wide(ws, routes, dept_name, date_str, type_lbl, styles, sort_asc)
     elif fmt == "rows":
-        _write_dept_rows(ws, routes, dept_name, date_str, type_lbl, styles, sort_asc)
+        _write_dept_rows(ws, routes, dept_name, date_str, type_lbl, styles, sort_asc, prod_map)
     else:
         # Legacy: column-based шаблон
         _write_dept_sheet(ws, routes, dept_name, date_str, type_lbl,
@@ -2119,7 +2162,7 @@ def generate_single_dept_file(
     _apply_page_margins(ws, for_labels=False)
 
     _write_dept_by_format(ws, routes, group["name"], date_str, type_lbl,
-                          fmt, template_cols, styles, sort_asc)
+                          fmt, template_cols, styles, sort_asc, prod_map)
 
     wb.save(save_path)
     return save_path
@@ -2168,7 +2211,7 @@ def generate_dept_files(
         ws = wb.add_sheet(_safe_sheet_name(group["name"]))
         _apply_page_margins(ws, for_labels=False)
         _write_dept_by_format(ws, routes, group["name"], date_str, type_lbl,
-                              fmt, template_cols, styles, sort_asc)
+                              fmt, template_cols, styles, sort_asc, prod_map)
         wb.save(save_path)
         created.append(save_path)
 
@@ -2213,7 +2256,7 @@ def generate_pcs_compare_report(
 ) -> str:
     """
     Создаёт отчет по продуктам с showPcs:
-    Отдел | Продукт | Ед.изм. | Шт (Основные) | Шт (Увеличение)
+    Отдел | Продукт | количество в 1 шт | Шт (Основные) | Шт (Увеличение) | Итого
     """
     prod_map = {p.get("name"): dict(p) for p in (products_ref or []) if p.get("name")}
     main_totals = _aggregate_pcs_totals_by_product(main_routes, prod_map)
@@ -2240,30 +2283,41 @@ def generate_pcs_compare_report(
     styles = _get_styles()
 
     date_str = get_routes_date_str()
-    ws.write_merge(0, 0, 0, 4, f"Отчет по Шт {date_str}", styles["title"])
+    ws.write_merge(0, 0, 0, 5, f"Отчет по Шт {date_str}", styles["title"])
     ws.write(1, 0, "Отдел / Подотдел", styles["header"])
     ws.write(1, 1, "Продукт", styles["header"])
-    ws.write(1, 2, "Ед. изм.", styles["header"])
+    ws.write(1, 2, "количество в 1 шт", styles["header"])
     ws.write(1, 3, "Шт (Основные)", styles["header"])
     ws.write(1, 4, "Шт (Увеличение)", styles["header"])
+    ws.write(1, 5, "Итого", styles["header"])
 
     row = 2
     for dept_key, name, unit in all_keys:
         dept_name = data_store.get_department_display_name(dept_key) if dept_key else "Без отдела"
         m = main_totals.get((dept_key, name, unit), 0.0)
         i = inc_totals.get((dept_key, name, unit), 0.0)
+        settings = prod_map.get(name) or {}
+        pcu = float(settings.get("pcsPerUnit", 1) or 1)
+        if pcu <= 0:
+            pcu = 1.0
+        qty_in_one = f"{pcu} {unit}".strip() if unit else str(pcu)
+        total_units = (m + i) * pcu
+
         ws.write(row, 0, dept_name, styles["cell"])
         ws.write(row, 1, name, styles["cell"])
-        ws.write(row, 2, unit, styles["cell"])
+        ws.write(row, 2, qty_in_one, styles["cell"])
         ws.write(row, 3, int(m) if abs(m - round(m)) < 1e-9 else round(m, 1), styles["num"])
         ws.write(row, 4, int(i) if abs(i - round(i)) < 1e-9 else round(i, 1), styles["num"])
+        total_val = int(total_units) if abs(total_units - round(total_units)) < 1e-9 else round(total_units, 1)
+        ws.write(row, 5, f"{total_val} {unit}".strip() if unit else str(total_val), styles["cell"])
         row += 1
 
     _set_col_width(ws, 0, 28)
     _set_col_width(ws, 1, 36)
-    _set_col_width(ws, 2, 12)
+    _set_col_width(ws, 2, 18)
     _set_col_width(ws, 3, 16)
     _set_col_width(ws, 4, 16)
+    _set_col_width(ws, 5, 16)
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     wb.save(report_path)
     return report_path

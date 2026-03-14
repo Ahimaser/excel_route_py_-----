@@ -57,6 +57,7 @@ class DeptGenerateWorker(QObject):
                     self.general_path,
                     self.prod_map,
                     self.sort_asc,
+                    date_str=self.date_str,
                 )
             created = excel_generator.generate_dept_files(
                 self.dept_groups, self.file_type,
@@ -110,10 +111,14 @@ class PreviewDeptPage(QWidget):
         super().__init__()
         self.app_state   = app_state
         self._dept_groups: list[dict] = []
-        self._table_font_size = 13
+        self._table_font_size = 11
         self._dept_tables: list[QTableWidget] = []
         self._col_widths_by_table = {}
         self._display_mode = _DISPLAY_ADDR_ONLY  # по умолчанию только № маршрута и адрес
+        self._dept_tab_defs: list[dict] = []
+        self._dept_buttons: list[QPushButton] = []
+        self._subdept_buttons: list[QPushButton] = []
+        self._subdept_scopes: list[tuple[str, int]] = []
         self._build_ui()
 
     def _build_ui(self):
@@ -127,10 +132,11 @@ class PreviewDeptPage(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(scroll)
         scroll.setWidget(content)
-        content.setMinimumHeight(680)
+        content.setObjectName("previewDeptContent")
+        content.setMinimumHeight(480)
         inner = QVBoxLayout(content)
-        inner.setContentsMargins(32, 24, 32, 24)
-        inner.setSpacing(20)
+        inner.setContentsMargins(20, 16, 20, 16)
+        inner.setSpacing(12)
 
         h_row = QHBoxLayout()
         btn_back = QPushButton("← Назад")
@@ -146,47 +152,68 @@ class PreviewDeptPage(QWidget):
         self.lbl_title.setObjectName("sectionTitle")
         h_row.addWidget(self.lbl_title)
         h_row.addStretch()
-        self.lbl_font_size = QLabel("Размер текста: 13")
-        self.lbl_font_size.setObjectName("badge")
-        h_row.addWidget(self.lbl_font_size)
-        inner.addLayout(h_row)
 
-        # Фильтр по отделу и режим отображения
-        filter_row = QHBoxLayout()
-        lbl_filter = QLabel("Показать отдел/подотдел:")
-        filter_row.addWidget(lbl_filter)
-        self.combo_dept_filter = QComboBox()
-        self.combo_dept_filter.setMinimumWidth(220)
-        self.combo_dept_filter.currentIndexChanged.connect(self._on_filter_changed)
-        filter_row.addWidget(self.combo_dept_filter)
-        filter_row.addSpacing(16)
-        filter_row.addWidget(QLabel("Показать:"))
+        h_row.addWidget(QLabel("Показать:"))
         self.combo_display = QComboBox()
         self.combo_display.setMinimumWidth(140)
         self.combo_display.addItem("Только № и адрес", _DISPLAY_ADDR_ONLY)
         self.combo_display.addItem("Полностью", _DISPLAY_FULL)
         self.combo_display.setCurrentIndex(0)
         self.combo_display.currentIndexChanged.connect(self._on_display_changed)
-        filter_row.addWidget(self.combo_display)
-        filter_row.addStretch()
-        inner.addLayout(filter_row)
+        h_row.addWidget(self.combo_display)
+
+        inner.addLayout(h_row)
+
+        # Баннер непривязанных продуктов (4A)
+        self.banner_unassigned = QFrame()
+        self.banner_unassigned.setObjectName("bannerWarning")
+        self.banner_unassigned.setVisible(False)
+        banner_lay = QHBoxLayout(self.banner_unassigned)
+        banner_lay.setContentsMargins(12, 8, 12, 8)
+        self.lbl_banner = QLabel("")
+        self.lbl_banner.setWordWrap(True)
+        banner_lay.addWidget(self.lbl_banner)
+        self.btn_banner_depts = QPushButton("Открыть Отделы и продукты")
+        self.btn_banner_depts.setObjectName("btnPrimary")
+        self.btn_banner_depts.clicked.connect(self._on_banner_open_departments)
+        banner_lay.addWidget(self.btn_banner_depts)
+        self.btn_banner_products = QPushButton("Справочник продуктов")
+        self.btn_banner_products.setObjectName("btnSecondary")
+        self.btn_banner_products.clicked.connect(self._on_banner_open_products)
+        banner_lay.addWidget(self.btn_banner_products)
+        inner.addWidget(self.banner_unassigned)
+
+        # Выбор отдела/подотдела: отделы сверху, подотделы под ними (скрыты до выбора)
+        dept_row = QHBoxLayout()
+        dept_row.setSpacing(8)
+        dept_tabs_frame = QFrame()
+        dept_tabs_frame.setObjectName("deptTabsBar")
+        self.dept_btns_lay = QHBoxLayout(dept_tabs_frame)
+        self.dept_btns_lay.setContentsMargins(8, 6, 8, 6)
+        self.dept_btns_lay.setSpacing(6)
+        dept_row.addWidget(dept_tabs_frame)
+        dept_row.addStretch()
+        inner.addLayout(dept_row)
+
+        self.subdept_frame = QFrame()
+        self.subdept_frame.setObjectName("subdeptPillsBar")
+        self.subdept_btns_lay = QHBoxLayout(self.subdept_frame)
+        self.subdept_btns_lay.setContentsMargins(0, 4, 0, 4)
+        self.subdept_btns_lay.setSpacing(6)
+        self.subdept_frame.setVisible(False)
+        inner.addWidget(self.subdept_frame)
 
         self.tabs = QTabWidget()
+        self.tabs.tabBar().hide()
         inner.addWidget(self.tabs)
 
         bottom_row = QHBoxLayout()
         bottom_row.addStretch()
-
         self.btn_generate_all = QPushButton("Создать файлы для всех отделов")
-        self.btn_generate_all.setMinimumWidth(200)
+        self.btn_generate_all.setMinimumWidth(220)
         self.btn_generate_all.setObjectName("btnPrimary")
         self.btn_generate_all.clicked.connect(self._on_generate_all)
         bottom_row.addWidget(self.btn_generate_all)
-
-        self.btn_clear = QPushButton("Очистить маршруты")
-        self.btn_clear.setObjectName("btnDanger")
-        self.btn_clear.clicked.connect(self._on_clear_routes)
-        bottom_row.addWidget(self.btn_clear)
 
         inner.addLayout(bottom_row)
 
@@ -201,13 +228,15 @@ class PreviewDeptPage(QWidget):
         """Возвращает список продуктов без отдела из текущих маршрутов."""
         routes   = self.app_state.get("filteredRoutes", [])
         products = data_store.get_ref("products") or []
+        aliases  = data_store.get_aliases()
         assigned = {p["name"] for p in products if p.get("deptKey")}
         unassigned: set[str] = set()
         for r in routes:
             if r.get("excluded"):
                 continue
             for p in r.get("products", []):
-                if p["name"] not in assigned:
+                canonical = aliases.get(p["name"], p["name"])
+                if canonical not in assigned:
                     unassigned.add(p["name"])
         return sorted(unassigned)
 
@@ -277,18 +306,112 @@ class PreviewDeptPage(QWidget):
 
         return groups
 
+    def _build_dept_tab_defs(self) -> list[dict]:
+        """Строит структуру: отделы с подотделами (как в настройках округления Шт)."""
+        depts = data_store.get_ref("departments") or []
+        result: list[dict] = []
+        for dept in depts:
+            dept_key = dept.get("key") or ""
+            dept_name = dept.get("name") or dept_key
+            if not dept_key:
+                continue
+            scopes: list[tuple[str, int]] = []
+            for sub in dept.get("subdepts", []):
+                sub_key = sub.get("key") or ""
+                sub_name = sub.get("name") or sub_key
+                for i, g in enumerate(self._dept_groups):
+                    if g.get("is_subdept") and g.get("key") == sub_key:
+                        scopes.append((f"{sub_name} ({len(g['routes'])})", i))
+                        break
+            for i, g in enumerate(self._dept_groups):
+                if not g.get("is_subdept") and g.get("key") == dept_key:
+                    scopes.append((f"{dept_name} — отдел ({len(g['routes'])})", i))
+                    break
+            if scopes:
+                total = sum(len(self._dept_groups[idx]["routes"]) for _, idx in scopes)
+                result.append({
+                    "dept_key": dept_key,
+                    "dept_name": dept_name,
+                    "tab_text": f"{dept_name} ({total})",
+                    "scopes": scopes,
+                })
+        return result
+
+    def _clear_dept_buttons(self) -> None:
+        while self.dept_btns_lay.count():
+            item = self.dept_btns_lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self._dept_buttons.clear()
+
+    def _clear_subdept_buttons(self) -> None:
+        while self.subdept_btns_lay.count():
+            item = self.subdept_btns_lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self._subdept_buttons.clear()
+        self._subdept_scopes.clear()
+        self.subdept_frame.setVisible(False)
+
+    def _populate_dept_buttons(self) -> None:
+        for i, tab_def in enumerate(self._dept_tab_defs):
+            btn = QPushButton(tab_def["tab_text"])
+            btn.setObjectName("deptTab")
+            btn.setCheckable(True)
+            btn.setChecked(i == 0)
+            btn.clicked.connect(lambda checked, idx=i: self._on_dept_clicked(idx))
+            self.dept_btns_lay.addWidget(btn)
+            self._dept_buttons.append(btn)
+        self.dept_btns_lay.addStretch()
+
+    def _on_dept_clicked(self, index: int) -> None:
+        if index < 0 or index >= len(self._dept_tab_defs):
+            return
+        for i, btn in enumerate(self._dept_buttons):
+            btn.setChecked(i == index)
+        tab_def = self._dept_tab_defs[index]
+        scopes = tab_def.get("scopes", [])
+        self._clear_subdept_buttons()
+        if len(scopes) > 1:
+            self.subdept_frame.setVisible(True)
+            self._subdept_scopes = scopes
+            for i, (label, group_idx) in enumerate(scopes):
+                btn = QPushButton(label)
+                btn.setObjectName("subdeptPill")
+                btn.setCheckable(True)
+                btn.setChecked(i == 0)
+                btn.clicked.connect(lambda c=False, idx=group_idx: self._on_scope_clicked(idx))
+                self.subdept_btns_lay.addWidget(btn)
+                self._subdept_buttons.append(btn)
+            self.subdept_btns_lay.addStretch()
+            self.tabs.setCurrentIndex(scopes[0][1])
+        else:
+            self.subdept_frame.setVisible(False)
+            if scopes:
+                self.tabs.setCurrentIndex(scopes[0][1])
+
+    def _on_scope_clicked(self, group_idx: int) -> None:
+        for i, (_, idx) in enumerate(self._subdept_scopes):
+            if i < len(self._subdept_buttons):
+                self._subdept_buttons[i].setChecked(idx == group_idx)
+        self.tabs.setCurrentIndex(group_idx)
+
     # ─────────────────────────── Рендер ───────────────────────────────────
 
-    def _on_filter_changed(self, _index: int):
-        """Переключает вкладку при изменении фильтра."""
-        key = self.combo_dept_filter.currentData()
-        if key is None:
-            return  # «Все отделы» — ничего не делаем, все вкладки видны
-        # Найти вкладку с нужным ключом
-        for i, g in enumerate(self._dept_groups):
-            if g["key"] == key:
-                self.tabs.setCurrentIndex(i)
-                break
+    def _get_routes_date_str(self) -> str:
+        """Дата из app_state (задаётся при добавлении файлов) или завтра."""
+        s = self.app_state.get("routesDate")
+        if s:
+            try:
+                parts = s.split(".")
+                if len(parts) == 3:
+                    return s
+            except (ValueError, TypeError):
+                pass
+        tomorrow = date.today() + timedelta(days=1)
+        return f"{tomorrow.day:02d}.{tomorrow.month:02d}.{tomorrow.year}"
 
     def refresh(self):
         file_type = self.app_state.get("fileType", "main")
@@ -297,46 +420,31 @@ class PreviewDeptPage(QWidget):
             f"{'Основной' if file_type == 'main' else 'Увеличение (Довоз)'}"
         )
 
-        # ── Проверка: есть ли продукты без отдела ──────────────────────────
+        # ── Проверка: есть ли продукты без отдела (4A: баннер + disabled) ────
         unassigned = self._check_unassigned_products()
         if unassigned:
-            names_str = "\n  • ".join(unassigned[:15])
-            if len(unassigned) > 15:
-                names_str += f"\n  ... и ещё {len(unassigned)-15}"
-            reply = QMessageBox.warning(
-                self,
-                "Продукты без отдела",
-                f"Следующие продукты не привязаны к отделу:\n\n  • {names_str}\n\n"
-                f"Пока все продукты не будут привязаны, страница маршрутов по отделам "
-                f"будет работать некорректно.\n\n"
-                f"Открыть окно «Отделы и продукты» для привязки?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            names_str = ", ".join(unassigned[:8])
+            if len(unassigned) > 8:
+                names_str += f" и ещё {len(unassigned) - 8}"
+            self.lbl_banner.setText(
+                f"⚠ {len(unassigned)} продукт(ов) без отдела: {names_str}. "
+                "Сначала привяжите все продукты к отделам."
             )
-            if reply == QMessageBox.StandardButton.Yes:
-                dept_mod.open_modal(self, self.app_state)
-                # После закрытия окна — перестроить группы
-                unassigned2 = self._check_unassigned_products()
-                if unassigned2:
-                    # Ещё остались непривязанные — заблокировать страницу
-                    self._show_blocked(unassigned2)
-                    return
-            else:
-                self._show_blocked(unassigned)
-                return
+            self.banner_unassigned.setVisible(True)
+            self.btn_generate_all.setEnabled(False)
+            self.btn_generate_all.setToolTip("Сначала привяжите все продукты к отделам")
+        else:
+            self.banner_unassigned.setVisible(False)
+            self.btn_generate_all.setEnabled(True)
+            self.btn_generate_all.setToolTip("")
 
         self._dept_groups = self._build_dept_groups()
-
-        # Обновляем фильтр
-        self.combo_dept_filter.blockSignals(True)
-        self.combo_dept_filter.clear()
-        self.combo_dept_filter.addItem("Все отделы", None)
-        for g in self._dept_groups:
-            prefix = "  └ " if g.get("is_subdept") else "• "
-            self.combo_dept_filter.addItem(f"{prefix}{g['name']}", g["key"])
-        self.combo_dept_filter.blockSignals(False)
+        self._dept_tab_defs = self._build_dept_tab_defs()
 
         self.tabs.clear()
         self._dept_tables.clear()
+        self._clear_dept_buttons()
+        self._clear_subdept_buttons()
 
         if not self._dept_groups:
             empty = QLabel(
@@ -356,10 +464,16 @@ class PreviewDeptPage(QWidget):
             tab = self._make_dept_tab(group, prod_map)
             self.tabs.addTab(tab, group["name"])
 
+        self._populate_dept_buttons()
+        if self._dept_tab_defs:
+            self._on_dept_clicked(0)
+
     def _show_blocked(self, unassigned: list):
         """Показывает заглушку, пока есть непривязанные продукты."""
         self._dept_groups = []
-        self.combo_dept_filter.clear()
+        self._dept_tab_defs = []
+        self._clear_dept_buttons()
+        self._clear_subdept_buttons()
         self.tabs.clear()
         names_str = ", ".join(unassigned[:5])
         if len(unassigned) > 5:
@@ -390,6 +504,15 @@ class PreviewDeptPage(QWidget):
         blay.addLayout(btn_row)
         self.tabs.addTab(blocked, "Заблокировано")
 
+    def _on_banner_open_departments(self):
+        dept_mod.open_modal(self.window(), self.app_state)
+        self.refresh()
+
+    def _on_banner_open_products(self):
+        from ui.pages.products_page import open_modal as open_products
+        open_products(self.window(), self.app_state)
+        self.refresh()
+
     def _open_depts_and_retry(self):
         dept_mod.open_modal(self, self.app_state)
         self.refresh()
@@ -397,16 +520,25 @@ class PreviewDeptPage(QWidget):
     def _make_dept_tab(self, group: dict, prod_map: dict) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(8, 8, 8, 8)
-        lay.setSpacing(8)
+        lay.setContentsMargins(6, 6, 6, 6)
+        lay.setSpacing(6)
 
         lbl = QLabel(f"Маршрутов: {len(group['routes'])}")
         lbl.setObjectName("hintLabel")
         lay.addWidget(lbl)
 
+        has_dirty = any(
+            prod_map.get(p.get("name", ""), {}).get("showInDirty")
+            and data_store.is_subdept_chistchenka(prod_map.get(p.get("name", ""), {}).get("deptKey"))
+            for r in group["routes"] for p in r.get("products", [])
+        )
+        n_cols = 6 if has_dirty else 5
+        headers = ["№ маршрута", "Адрес / Продукт", "Ед. изм.", "Кол-во", "Шт"]
+        if has_dirty:
+            headers.append("Грязные")
         table = QTableWidget()
-        table.setColumnCount(5)
-        table.setHorizontalHeaderLabels(["№ маршрута", "Адрес / Продукт", "Ед. изм.", "Кол-во", "Шт"])
+        table.setColumnCount(n_cols)
+        table.setHorizontalHeaderLabels(headers)
         hdr = table.horizontalHeader()
         hdr.setMinimumSectionSize(90)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -414,12 +546,15 @@ class PreviewDeptPage(QWidget):
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        if has_dirty:
+            hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         hdr.resizeSection(1, 260)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.verticalHeader().setVisible(False)
         table.setAlternatingRowColors(True)
         table.setFont(QFont("", self._table_font_size))
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         table.installEventFilter(self)
         self._dept_tables.append(table)
         lay.addWidget(table)
@@ -443,7 +578,6 @@ class PreviewDeptPage(QWidget):
                 delta = event.angleDelta().y()
                 step = 1 if delta > 0 else -1
                 self._table_font_size = max(8, min(24, self._table_font_size + step))
-                self.lbl_font_size.setText(f"Размер текста: {self._table_font_size}")
                 prod_map = data_store.get_products_map()
                 for i, tbl in enumerate(self._dept_tables):
                     tbl.setFont(QFont("", self._table_font_size))
@@ -505,16 +639,19 @@ class PreviewDeptPage(QWidget):
             route_num = str(route.get("routeNum", ""))
             address   = route.get("address", "")
 
-            # Строка маршрута: номер | адрес | пусто | пусто | пусто
+            has_dirty_col = table.columnCount() >= 6
+            # Строка маршрута: номер | адрес | пусто | пусто | пусто | [пусто]
             table.setItem(current_row, 0, _make_item(route_num, bold=True))
             table.setItem(current_row, 1, _make_item(address,   bold=True, bg=gray_bg))
             table.setItem(current_row, 2, _make_item(""))
             table.setItem(current_row, 3, _make_item(""))
             table.setItem(current_row, 4, _make_item(""))
+            if has_dirty_col:
+                table.setItem(current_row, 5, _make_item(""))
             current_row += 1
 
             if not only_addr:
-                # Строки продуктов: пусто | название | ед.изм. | кол-во | шт
+                # Строки продуктов: пусто | название | ед.изм. | кол-во | шт | [грязные]
                 for prod in products:
                     table.setItem(current_row, 0, _make_item(""))
                     table.setItem(current_row, 1, _make_item(f"  {prod.get('name', '')}"))
@@ -523,10 +660,30 @@ class PreviewDeptPage(QWidget):
                     pcs_str = self._fmt_pcs(prod, prod_map, route)
                     table.setItem(current_row, 3, _make_item(qty_str, align_right=True))
                     table.setItem(current_row, 4, _make_item(pcs_str, align_right=True))
+                    if has_dirty_col:
+                        dirty_str = self._fmt_dirty_qty(prod, prod_map)
+                        table.setItem(current_row, 5, _make_item(dirty_str, align_right=True))
                     current_row += 1
 
         table.setUpdatesEnabled(True)
         table.resizeColumnsToContents()
+        row_h = 28
+        hdr_h = table.horizontalHeader().height()
+        table.setMinimumHeight(hdr_h + total_rows * row_h + 4)
+
+    def _fmt_dirty_qty(self, prod: dict, prod_map: dict) -> str:
+        """Кол-во грязных (×1,25) для продуктов с showInDirty в подотделе Чищенка, иначе «—»."""
+        ps = prod_map.get(prod.get("name", ""), {})
+        if not ps.get("showInDirty") or not data_store.is_subdept_chistchenka(ps.get("deptKey")):
+            return "—"
+        qty = prod.get("quantity")
+        if qty is None:
+            return ""
+        try:
+            dirty = float(qty) * 1.25
+            return str(int(dirty)) if abs(dirty - round(dirty)) < 1e-9 else str(round(dirty, 2))
+        except (ValueError, TypeError):
+            return ""
 
     def _fmt_qty(self, prod: dict, prod_map: dict) -> str:
         """Кол-во в единицах измерения (с учётом множителя замены)."""
@@ -581,10 +738,11 @@ class PreviewDeptPage(QWidget):
                 return "0"
             pcs = max(0, int(val // pcu))
             tail = max(0.0, val - pcs * pcu)
-            if tail > 1e-9:
+            unit = (prod.get("unit") or "").strip()
+            if tail > 1e-9 and unit:
                 tail_txt = str(int(tail)) if abs(tail - round(tail)) < 1e-9 else f"{tail:.3f}".rstrip("0").rstrip(".")
-                return f"{pcs} + {tail_txt} {prod.get('unit', '')}"
-            return str(pcs)
+                return f"{pcs} шт + {tail_txt} {unit}"
+            return f"{pcs} шт"
         # Порог: ниже — 0 шт (как в генераторе)
         min_qty = ps.get("minQtyForPcs")
         if min_qty is not None and min_qty > 0:
@@ -620,7 +778,8 @@ class PreviewDeptPage(QWidget):
     # ─────────────────────────── Генерация ────────────────────────────────
 
     def _on_save_single(self, group: dict):
-        date_str = excel_generator.get_routes_date_str()
+        date_str = self._get_routes_date_str()
+        self.app_state["routesDate"] = date_str
         file_type = self.app_state.get("fileType", "main")
         data_store.save_last_routes(
             file_type,
@@ -687,7 +846,8 @@ class PreviewDeptPage(QWidget):
             route_category=self.app_state.get("routeCategory"),
         )
         sort_asc  = self.app_state.get("sortAsc", True)
-        date_str = excel_generator.get_routes_date_str()
+        date_str = self._get_routes_date_str()
+        self.app_state["routesDate"] = date_str
         type_dir = excel_generator.get_routes_type_folder(chosen_dir, file_type, date_str)
         os.makedirs(type_dir, exist_ok=True)
         general_path = excel_generator.get_general_routes_path(chosen_dir, file_type, date_str)
@@ -717,7 +877,7 @@ class PreviewDeptPage(QWidget):
             if created:
                 any_path = created[0]
                 day_dir = os.path.dirname(os.path.dirname(any_path))
-                date_str = excel_generator.get_routes_date_str()
+                date_str = self.app_state.get("routesDate") or excel_generator.get_routes_date_str()
                 report_path = os.path.join(day_dir, f"Отчет Шт {date_str}.xls")
                 main_blob = data_store.get_last_routes("main") or {}
                 inc_blob = data_store.get_last_routes("increase") or {}
@@ -806,19 +966,3 @@ class PreviewDeptPage(QWidget):
         self.btn_labels.setEnabled(True)
         QMessageBox.critical(self, "Ошибка", msg)
 
-    def _on_clear_routes(self):
-        reply = QMessageBox.question(
-            self, "Очистить маршруты",
-            "Удалить все загруженные маршруты и последние сохранённые данные?\n"
-            "После этого можно загрузить новые файлы.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            data_store.clear_last_routes()
-            self.app_state.update({
-                "filePaths": [], "routes": [], "uniqueProducts": [],
-                "filteredRoutes": [], "routeCategory": "ШК",
-                "institutionList": [],
-            })
-            self.go_clear_routes.emit()

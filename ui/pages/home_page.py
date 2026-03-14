@@ -10,15 +10,16 @@ home_page.py — Главная страница: 3 шага обработки 
 from __future__ import annotations
 
 import os
+from datetime import date, timedelta
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QFileDialog, QListWidget, QListWidgetItem,
     QButtonGroup, QRadioButton, QProgressBar, QSizePolicy,
-    QScrollArea, QMessageBox, QComboBox,
+    QScrollArea, QMessageBox, QComboBox, QDateEdit,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject, QDate
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
 from core import data_store, xls_parser
@@ -131,23 +132,23 @@ class HomePage(QWidget):
         outer.addWidget(scroll)
 
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(48, 40, 48, 40)
-        lay.setSpacing(28)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(10)
 
         lbl_h = QLabel("Обработка файлов")
         lbl_h.setObjectName("sectionTitle")
         lay.addWidget(lbl_h)
 
-        lay.addWidget(self._make_step_card("1", "Выберите тип создаваемого файла",  self._build_step1()))
-        lay.addWidget(self._make_step_card("2", "Выберите XLS файлы для обработки (школы и/или сады)", self._build_step2()))
-        lay.addWidget(self._make_step_card("3", "Папка сохранения (опционально)",   self._build_step3()))
+        lay.addWidget(self._make_step_card("1", "Тип файла", self._build_step1()))
+        lay.addWidget(self._make_step_card("2", "Файлы XLS (школы и/или сады)", self._build_step2()))
+        lay.addWidget(self._make_step_card("3", "Папка сохранения и дата", self._build_step3()))
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self.btn_process = QPushButton("Обработать файлы →")
         self.btn_process.setObjectName("btnPrimary")
-        self.btn_process.setFixedHeight(42)
-        self.btn_process.setMinimumWidth(200)
+        self.btn_process.setFixedHeight(34)
+        self.btn_process.setMinimumWidth(180)
         self.btn_process.setEnabled(False)
         self.btn_process.clicked.connect(self._on_process)
         btn_row.addWidget(self.btn_process)
@@ -164,13 +165,13 @@ class HomePage(QWidget):
         card = QFrame()
         card.setObjectName("card")
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(24, 20, 24, 20)
-        lay.setSpacing(14)
+        lay.setContentsMargins(16, 12, 16, 12)
+        lay.setSpacing(10)
 
         h_row = QHBoxLayout()
         badge = QLabel(num)
         badge.setObjectName("badge")
-        badge.setFixedSize(24, 24)
+        badge.setFixedSize(20, 20)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         h_row.addWidget(badge)
 
@@ -192,7 +193,7 @@ class HomePage(QWidget):
         w = QWidget()
         lay = QHBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(16)
+        lay.setSpacing(10)
 
         self.radio_main = QRadioButton("Основной")
         self.radio_main.setChecked(True)
@@ -214,7 +215,7 @@ class HomePage(QWidget):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(16)
+        lay.setSpacing(10)
 
         lbl_shk = QLabel("Файлы для ШК (школы)")
         lbl_shk.setObjectName("subsectionLabel")
@@ -229,6 +230,7 @@ class HomePage(QWidget):
         btn_shk = QHBoxLayout()
         self.btn_add_shk = QPushButton("+ Добавить файлы ШК")
         self.btn_add_shk.setObjectName("btnSecondary")
+        self.btn_add_shk.setMinimumWidth(180)
         self.btn_add_shk.clicked.connect(lambda: self._open_file_dialog("shk"))
         self.btn_add_shk.setVisible(False)
         self.btn_clear_shk = QPushButton("Очистить ШК")
@@ -253,6 +255,7 @@ class HomePage(QWidget):
         btn_sd = QHBoxLayout()
         self.btn_add_sd = QPushButton("+ Добавить файлы СД")
         self.btn_add_sd.setObjectName("btnSecondary")
+        self.btn_add_sd.setMinimumWidth(180)
         self.btn_add_sd.clicked.connect(lambda: self._open_file_dialog("sd"))
         self.btn_add_sd.setVisible(False)
         self.btn_clear_sd = QPushButton("Очистить СД")
@@ -268,20 +271,34 @@ class HomePage(QWidget):
 
     def _build_step3(self) -> QWidget:
         w = QWidget()
-        lay = QHBoxLayout(w)
+        lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(12)
+        lay.setSpacing(8)
 
+        row_dir = QHBoxLayout()
         self.lbl_save_dir = QLabel()
         self.lbl_save_dir.setObjectName("stepLabel")
         self.lbl_save_dir.setWordWrap(True)
         self._update_save_dir_label()
-        lay.addWidget(self.lbl_save_dir, 1)
+        row_dir.addWidget(self.lbl_save_dir, 1)
 
         btn_change = QPushButton("Изменить")
         btn_change.setObjectName("btnSecondary")
         btn_change.clicked.connect(self._choose_save_dir)
-        lay.addWidget(btn_change)
+        row_dir.addWidget(btn_change)
+        lay.addLayout(row_dir)
+
+        row_date = QHBoxLayout()
+        row_date.addWidget(QLabel("Дата в заголовках и названиях папок:"))
+        self.date_edit = QDateEdit()
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDisplayFormat("dd.MM.yyyy")
+        tomorrow = date.today() + timedelta(days=1)
+        self.date_edit.setDate(QDate(tomorrow.year, tomorrow.month, tomorrow.day))
+        row_date.addWidget(self.date_edit)
+        row_date.addStretch()
+        lay.addLayout(row_date)
+
         return w
 
     # ─────────────────────────── Логика ───────────────────────────────────
@@ -412,6 +429,8 @@ class HomePage(QWidget):
         self.app_state["filteredRoutes"] = [{**r, "excluded": False} for r in routes]
         self.app_state["institutionList"] = data_store.get_institution_list_from_routes(routes)
         first_cat = routes[0].get("routeCategory", "ШК") if routes else "ШК"
+        qd = self.date_edit.date()
+        self.app_state["routesDate"] = f"{qd.day():02d}.{qd.month():02d}.{qd.year()}"
         self.app_state["routeCategory"] = first_cat
 
         if routes and hasattr(self.app_state.get("set_status"), "__call__"):

@@ -70,7 +70,8 @@ class NewProductsDialog(QDialog):
         self.table.verticalHeader().setVisible(False)
         self.table.setMinimumHeight(max(140, min(320, 44 * min(len(self._items), 10))))
         for row, it in enumerate(self._items):
-            self.table.setItem(row, 0, QTableWidgetItem(f"{it['name']}  ({it.get('unit', '')})"))
+            name_item = QTableWidgetItem(f"{it['name']} ({it.get('unit', '')})")
+            self.table.setItem(row, 0, name_item)
             combo = QComboBox()
             combo.addItem("Новый продукт", ACTION_NEW)
             similar = it.get("similar") or []
@@ -81,7 +82,20 @@ class NewProductsDialog(QDialog):
                 combo.insertSeparator(1)
                 for c in ordered_canonical:
                     combo.addItem(f"Дубликат: {c}", ACTION_ALIAS_PREFIX + c)
+
+            def _on_combo_changed(idx, r=row, item=it, cbox=combo):
+                val = cbox.currentData()
+                if val == ACTION_NEW:
+                    txt = f"{item['name']} ({item.get('unit', '')})"
+                elif isinstance(val, str) and val.startswith(ACTION_ALIAS_PREFIX):
+                    canonical = val[len(ACTION_ALIAS_PREFIX):]
+                    txt = f"{item['name']} (→ {canonical})"
+                else:
+                    txt = f"{item['name']} ({item.get('unit', '')})"
+                self.table.item(r, 0).setText(txt)
+
             self._combos.append(combo)
+            combo.currentIndexChanged.connect(_on_combo_changed)
             self.table.setCellWidget(row, 1, combo)
         lay.addWidget(self.table)
         btn_row = QHBoxLayout()

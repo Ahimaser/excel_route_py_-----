@@ -21,7 +21,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QTableView, QLineEdit, QApplication,
     QComboBox, QHeaderView, QAbstractItemView,
-    QMessageBox, QFileDialog, QProgressBar, QMenu, QScrollArea
+    QMessageBox, QFileDialog, QProgressBar, QMenu, QScrollArea,
+    QStyledItemDelegate,
 )
 from PyQt6.QtCore import (
     Qt, pyqtSignal, QThread, QObject, QTimer, QEvent,
@@ -49,6 +50,25 @@ _COL_QTY  = 3
 _HEADERS  = ["# маршрута", "Адрес / Продукт", "Ед. изм.", "Кол-во"]
 
 
+# ─────────────────────────── Делегат (заливка из модели) ──────────────────
+
+class RoutesTableDelegate(QStyledItemDelegate):
+    """Отрисовывает фон из BackgroundRole модели (стили Qt иначе переопределяют)."""
+
+    def paint(self, painter, option, index):
+        bg = index.data(Qt.ItemDataRole.BackgroundRole)
+        if bg is not None:
+            try:
+                brush = QBrush(bg) if not isinstance(bg, QBrush) else bg
+                if brush.style() != Qt.BrushStyle.NoBrush:
+                    painter.save()
+                    painter.fillRect(option.rect, brush)
+                    painter.restore()
+            except (TypeError, ValueError):
+                pass
+        super().paint(painter, option, index)
+
+
 # ─────────────────────────── Модель таблицы ───────────────────────────────
 
 class RoutesTableModel(QAbstractTableModel):
@@ -57,13 +77,15 @@ class RoutesTableModel(QAbstractTableModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._rows: list[dict] = []
-        self._font_size = 13
+        self._font_size = 11
         self._bold_font = QFont()
         self._bold_font.setBold(True)
         self._bold_font.setPointSize(self._font_size)
         self._red_color  = QColor("#dc2626")
         self._blue_color = QColor("#2563eb")
         self._gray_bg    = QColor("#f8fafc")
+        self._red_bg     = QColor("#FEE2E2")   # заливка для «не определен»
+        self._blue_bg    = QColor("#DBEAFE")   # заливка для «определен»
 
     def set_font_size(self, point_size: int) -> None:
         """Меняет размер шрифта (для Ctrl+колесо мыши)."""
@@ -131,6 +153,9 @@ class RoutesTableModel(QAbstractTableModel):
 
         elif role == Qt.ItemDataRole.BackgroundRole:
             if is_route:
+                if col == _COL_NUM:
+                    rnum = str(rd["route_ref"].get("routeNum", ""))
+                    return self._red_bg if rnum == _UNDEFINED else self._blue_bg
                 return self._gray_bg
 
         elif role == Qt.ItemDataRole.ToolTipRole:
@@ -162,7 +187,8 @@ class RoutesTableModel(QAbstractTableModel):
                 bottom_right = self.index(i, self.columnCount() - 1)
                 self.dataChanged.emit(top_left, bottom_right,
                                       [Qt.ItemDataRole.DisplayRole,
-                                       Qt.ItemDataRole.ForegroundRole])
+                                       Qt.ItemDataRole.ForegroundRole,
+                                       Qt.ItemDataRole.BackgroundRole])
 
 
 # ─────────────────────────── Worker рендера ───────────────────────────────
@@ -321,7 +347,8 @@ class GenerateWorker(QObject):
     finished = pyqtSignal(str)
     error    = pyqtSignal(str)
 
-    def __init__(self, routes: list, file_type: str, save_path: str, prod_map: dict, sort_asc: bool = True):
+    def __init__(self, routes: list, file_type: str, save_path: str, prod_map: dict,
+                 sort_asc: bool = True, date_str: str | None = None):
         super().__init__()
         # Делаем глубокую копию маршрутов чтобы избежать конкурентного доступа
         import copy
@@ -330,11 +357,13 @@ class GenerateWorker(QObject):
         self.save_path = save_path
         self.prod_map  = prod_map
         self.sort_asc  = sort_asc
+        self.date_str  = date_str
 
     def run(self) -> None:
         try:
             path = excel_generator.generate_general_routes(
-                self.routes, self.file_type, self.save_path, self.prod_map, self.sort_asc
+                self.routes, self.file_type, self.save_path, self.prod_map, self.sort_asc,
+                date_str=self.date_str
             )
             self.finished.emit(path)
         except Exception as exc:
@@ -380,13 +409,13 @@ class EditPanel(QFrame):
         super().__init__(parent)
         self.setObjectName("editPanel")
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setMinimumWidth(260)
+        self.setMinimumWidth(220)
         self.setMaximumWidth(320)
         self._route_ref: dict | None = None
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
-        lay.setSpacing(12)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(8)
 
         title_row = QHBoxLayout()
         lbl_title = QLabel("Редактировать номер")
@@ -447,7 +476,7 @@ class EditPanel(QFrame):
         btn_row = QHBoxLayout()
         self.btn_save = QPushButton("Сохранить")
         self.btn_save.setObjectName("btnPrimary")
-        self.btn_save.setFixedHeight(36)
+        self.btn_save.setFixedHeight(30)
         self.btn_save.clicked.connect(self._on_save)
         btn_row.addWidget(self.btn_save)
 
@@ -528,7 +557,6 @@ class PreviewGeneralPage(QWidget):
         self._render_pending = False
         self._sort_asc       = True   # True = по возрастанию (по умолчанию)
         self._column_widths  = None   # пользовательские ширины столбцов в текущей сессии
-        self._column_widths  = None   # пользовательские ширины столбцов в текущей сессии
 
         self._render_thread: QThread | None = None
         self._render_worker: RenderWorker | None = None
@@ -553,10 +581,10 @@ class PreviewGeneralPage(QWidget):
 
     def _build_ui(self) -> None:
         content = QWidget()
-        content.setMinimumHeight(680)
+        content.setMinimumHeight(480)
         root_lay = QVBoxLayout(content)
-        root_lay.setContentsMargins(32, 24, 32, 24)
-        root_lay.setSpacing(20)
+        root_lay.setContentsMargins(20, 16, 20, 16)
+        root_lay.setSpacing(12)
 
         # Заголовок
         h_row = QHBoxLayout()
@@ -590,24 +618,33 @@ class PreviewGeneralPage(QWidget):
         self.lbl_no_num.setWordWrap(True)
         h_row.addWidget(self.lbl_no_num)
 
-        self.lbl_font_size = QLabel("Размер текста: 13")
-        self.lbl_font_size.setObjectName("badge")
-        h_row.addWidget(self.lbl_font_size)
-
-        btn_settings = QPushButton("Справочник продуктов")
-        btn_settings.setMinimumWidth(160)
-        btn_settings.setObjectName("btnSecondary")
-        btn_settings.clicked.connect(self.go_settings.emit)
-        h_row.addWidget(btn_settings)
-
         root_lay.addLayout(h_row)
 
-        # Панель фильтров
+        # Баннер непривязанных продуктов (4A)
+        self.banner_unassigned = QFrame()
+        self.banner_unassigned.setObjectName("bannerWarning")
+        self.banner_unassigned.setVisible(False)
+        banner_lay = QHBoxLayout(self.banner_unassigned)
+        banner_lay.setContentsMargins(12, 8, 12, 8)
+        self.lbl_banner = QLabel("")
+        self.lbl_banner.setWordWrap(True)
+        banner_lay.addWidget(self.lbl_banner)
+        self.btn_banner_depts = QPushButton("Открыть Отделы и продукты")
+        self.btn_banner_depts.setObjectName("btnPrimary")
+        self.btn_banner_depts.clicked.connect(self._on_banner_open_departments)
+        banner_lay.addWidget(self.btn_banner_depts)
+        self.btn_banner_products = QPushButton("Справочник продуктов")
+        self.btn_banner_products.setObjectName("btnSecondary")
+        self.btn_banner_products.clicked.connect(self._on_banner_open_products)
+        banner_lay.addWidget(self.btn_banner_products)
+        root_lay.addWidget(self.banner_unassigned)
+
+        # Панель фильтров (компактная)
         filter_card = QFrame()
         filter_card.setObjectName("card")
         filter_lay = QHBoxLayout(filter_card)
-        filter_lay.setContentsMargins(20, 16, 20, 16)
-        filter_lay.setSpacing(16)
+        filter_lay.setContentsMargins(12, 8, 12, 8)
+        filter_lay.setSpacing(8)
 
         self.le_search = QLineEdit()
         self.le_search.setPlaceholderText("Поиск по адресу или номеру маршрута...")
@@ -658,15 +695,18 @@ class PreviewGeneralPage(QWidget):
         self._model = RoutesTableModel(self)
         self.table = QTableView()
         self.table.setObjectName("routesTable")
+        self.table.setItemDelegate(RoutesTableDelegate(self.table))
         self.table.setModel(self._model)
         hdr = self.table.horizontalHeader()
         hdr.setMinimumSectionSize(90)
-        # Номер маршрута — по содержимому, адрес — чуть уже, количество — шире
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        # Широкие столбцы по умолчанию — меньше пустого места
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        hdr.resizeSection(1, 260)
+        hdr.resizeSection(0, 130)
+        hdr.resizeSection(1, 420)
+        hdr.resizeSection(2, 100)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
@@ -675,7 +715,7 @@ class PreviewGeneralPage(QWidget):
         self.table.clicked.connect(self._on_cell_clicked)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
-        self._table_font_size = 13
+        self._table_font_size = 11
         self.table.setFont(QFont("", self._table_font_size))
         self.table.installEventFilter(self)
         content_row.addWidget(self.table, stretch=1)
@@ -696,16 +736,10 @@ class PreviewGeneralPage(QWidget):
         bottom_row.addWidget(self.lbl_excluded)
         bottom_row.addStretch()
 
-        self.btn_clear = QPushButton("Очистить маршруты")
-        self.btn_clear.setObjectName("btnDanger")
-        self.btn_clear.setFixedHeight(40)
-        self.btn_clear.clicked.connect(self._on_clear_routes)
-        bottom_row.addWidget(self.btn_clear)
-
         self.btn_generate = QPushButton("Создать файл «Общие маршруты»")
-        self.btn_generate.setMinimumWidth(200)
+        self.btn_generate.setMinimumWidth(220)
         self.btn_generate.setObjectName("btnPrimary")
-        self.btn_generate.setFixedHeight(40)
+        self.btn_generate.setFixedHeight(32)
         self.btn_generate.clicked.connect(self._on_generate)
         bottom_row.addWidget(self.btn_generate)
 
@@ -744,11 +778,49 @@ class PreviewGeneralPage(QWidget):
                 self._model.set_font_size(self._table_font_size)
                 self.table.setFont(QFont("", self._table_font_size))
                 self._model.emit_data_changed()
-                self.lbl_font_size.setText(f"Размер текста: {self._table_font_size}")
                 return True
         return super().eventFilter(obj, event)
 
     # ─────────────────────────── Обновление ───────────────────────────────
+
+    def _check_unassigned_products(self) -> list[str]:
+        """Возвращает список продуктов без отдела из текущих маршрутов."""
+        routes = self.app_state.get("filteredRoutes", [])
+        products = data_store.get_ref("products") or []
+        aliases = data_store.get_aliases()
+        assigned = {p["name"] for p in products if p.get("deptKey")}
+        unassigned: set[str] = set()
+        for r in routes:
+            if r.get("excluded"):
+                continue
+            for p in r.get("products", []):
+                canonical = aliases.get(p["name"], p["name"])
+                if canonical not in assigned:
+                    unassigned.add(p["name"])
+        return sorted(unassigned)
+
+    def _on_banner_open_departments(self) -> None:
+        from ui.pages import departments_page as dept_mod
+        dept_mod.open_modal(self.window(), self.app_state)
+        self.refresh()
+
+    def _on_banner_open_products(self) -> None:
+        from ui.pages.products_page import open_modal as open_products
+        open_products(self.window(), self.app_state)
+        self.refresh()
+
+    def _get_routes_date_str(self) -> str:
+        """Дата из app_state (задаётся при добавлении файлов) или завтра."""
+        s = self.app_state.get("routesDate")
+        if s:
+            try:
+                parts = s.split(".")
+                if len(parts) == 3:
+                    return s
+            except (ValueError, TypeError):
+                pass
+        tomorrow = date.today() + timedelta(days=1)
+        return f"{tomorrow.day:02d}.{tomorrow.month:02d}.{tomorrow.year}"
 
     def refresh(self) -> None:
         log.debug("refresh called")
@@ -768,6 +840,25 @@ class PreviewGeneralPage(QWidget):
         self.edit_panel.clear()
         has_routes = bool([r for r in self.app_state.get("filteredRoutes", []) if not r.get("excluded")])
         self.btn_dept_preview.setEnabled(has_routes)
+
+        # Баннер и блокировка кнопки при непривязанных продуктах (4A)
+        unassigned = self._check_unassigned_products()
+        if unassigned:
+            names_str = ", ".join(unassigned[:8])
+            if len(unassigned) > 8:
+                names_str += f" и ещё {len(unassigned) - 8}"
+            self.lbl_banner.setText(
+                f"⚠ {len(unassigned)} продукт(ов) без отдела: {names_str}. "
+                "Сначала привяжите все продукты к отделам."
+            )
+            self.banner_unassigned.setVisible(True)
+            self.btn_generate.setEnabled(False)
+            self.btn_generate.setToolTip("Сначала привяжите все продукты к отделам")
+        else:
+            self.banner_unassigned.setVisible(False)
+            self.btn_generate.setEnabled(True)
+            self.btn_generate.setToolTip("")
+
         self._render_table()
 
     # ─────────────────────────── Рендер ───────────────────────────────────
@@ -818,13 +909,11 @@ class PreviewGeneralPage(QWidget):
         # Обновляем виртуальную модель -- мгновенно, без создания виджетов
         self._model.set_rows(rows_data)
 
-        # Стартовые ширины столбцов — один раз; далее сохраняем пользовательские
+        # Стартовые ширины столбцов — широкие по умолчанию; далее сохраняем пользовательские
         if self._column_widths is None:
-            self.table.resizeColumnsToContents()
-            # Немного расширим колонку с адресом, если она есть
-            if self._model.columnCount() > 1:
-                addr_w = self.table.columnWidth(1)
-                self.table.setColumnWidth(1, max(addr_w, 260))
+            for i, w in enumerate([130, 420, 100, -1]):
+                if i < self._model.columnCount() and w > 0:
+                    self.table.setColumnWidth(i, w)
             self._column_widths = [
                 self.table.columnWidth(i) for i in range(self._model.columnCount())
             ]
@@ -987,40 +1076,23 @@ class PreviewGeneralPage(QWidget):
         log.debug("route_num_saved done, no_num_count=%d", no_num_count)
 
     def _update_no_num_label(self, no_num_count: int) -> None:
-        """Обновляет метку неопределённых номеров маршрутов."""
+        """Обновляет метку: красный фон если есть неопределённые, зелёный если все определены."""
+        self.lbl_no_num.setVisible(True)
         if no_num_count > 0:
-            self.lbl_no_num.setText(f"Номер не определён: {no_num_count}")
-            self.lbl_no_num.setObjectName("badgeRed")
-            self.lbl_no_num.setVisible(True)
+            self.lbl_no_num.setText(f"Маршруты не определены: {no_num_count}")
+            self.lbl_no_num.setStyleSheet(
+                "background-color: #FEE2E2; color: #DC2626; border-radius: 12px; "
+                "padding: 4px 10px; font-size: 10px; font-weight: 600;"
+            )
         else:
-            self.lbl_no_num.setText("Номера маршрутов определены")
-            self.lbl_no_num.setObjectName("badgeGreen")
-            self.lbl_no_num.setVisible(True)
-        # Принудительно обновляем стиль (objectName изменился)
-        self.lbl_no_num.style().unpolish(self.lbl_no_num)
-        self.lbl_no_num.style().polish(self.lbl_no_num)
+            self.lbl_no_num.setText("Все маршруты определены")
+            self.lbl_no_num.setStyleSheet(
+                "background-color: #DCFCE7; color: #4BD08B; border-radius: 12px; "
+                "padding: 4px 10px; font-size: 10px; font-weight: 600;"
+            )
 
     def _on_panel_closed(self) -> None:
         self.table.clearSelection()
-
-    def _on_clear_routes(self) -> None:
-        """Очистить загруженные маршруты (если загружен неправильный файл)."""
-        reply = QMessageBox.question(
-            self, "Очистить маршруты",
-            "Удалить все загруженные маршруты и последние сохранённые данные?\n"
-            "После этого можно загрузить новые файлы.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-        data_store.clear_last_routes()
-        self.app_state.update({
-            "filePaths": [], "routes": [], "uniqueProducts": [],
-            "filteredRoutes": [], "routeCategory": "ШК",
-            "institutionList": [],
-        })
-        self.go_clear_routes.emit()
 
     # ─────────────────────────── Контекстное меню ─────────────────────────
 
@@ -1155,7 +1227,8 @@ class PreviewGeneralPage(QWidget):
         if not chosen_base:
             return
         self.app_state["saveDir"] = chosen_base
-        date_str = excel_generator.get_routes_date_str()
+        date_str = self._get_routes_date_str()
+        self.app_state["routesDate"] = date_str
         save_path = excel_generator.get_general_routes_path(chosen_base, file_type, date_str)
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
@@ -1164,7 +1237,9 @@ class PreviewGeneralPage(QWidget):
         self.progress.setVisible(True)
 
         self._gen_thread = QThread(self)
-        self._gen_worker = GenerateWorker(active_routes, file_type, save_path, prod_map, self._sort_asc)
+        self._gen_worker = GenerateWorker(
+            active_routes, file_type, save_path, prod_map, self._sort_asc, date_str=date_str
+        )
         self._gen_worker.moveToThread(self._gen_thread)
         self._gen_thread.started.connect(self._gen_worker.run)
         self._gen_worker.finished.connect(self._on_gen_done)
@@ -1190,7 +1265,8 @@ class PreviewGeneralPage(QWidget):
         # Обновляем отчет по шт для папки дня.
         try:
             day_dir = os.path.dirname(os.path.dirname(path))
-            report_path = os.path.join(day_dir, f"Отчет Шт {excel_generator.get_routes_date_str()}.xls")
+            date_str = self.app_state.get("routesDate") or excel_generator.get_routes_date_str()
+            report_path = os.path.join(day_dir, f"Отчет Шт {date_str}.xls")
             main_blob = data_store.get_last_routes("main") or {}
             inc_blob = data_store.get_last_routes("increase") or {}
             excel_generator.generate_pcs_compare_report(
@@ -1230,8 +1306,8 @@ class PreviewGeneralPage(QWidget):
             )
             return
         base_dir = self.app_state.get("saveDir") or data_store.get_desktop_path()
-        tomorrow = date.today() + timedelta(days=1)
-        folder_name = f"Этикетки на {tomorrow:%d.%m.%Y}"
+        date_str = self._get_routes_date_str()
+        folder_name = f"Этикетки на {date_str}"
         out_dir = os.path.join(base_dir, folder_name)
         os.makedirs(out_dir, exist_ok=True)
         file_type = self.app_state.get("fileType", "main")

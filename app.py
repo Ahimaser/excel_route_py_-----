@@ -161,6 +161,11 @@ def main():
     try:
         from qt_material import apply_stylesheet
         apply_stylesheet(app, theme="light_blue.xml", invert_secondary=True)
+        try:
+            from ui.styles import QUANTITY_DIALOG_EXTRA, RIBBON_TABS_EXTRA
+            app.setStyleSheet(app.styleSheet() + RIBBON_TABS_EXTRA + QUANTITY_DIALOG_EXTRA)
+        except ImportError:
+            pass
     except ImportError:
         from ui.styles import STYLESHEET
         app.setStyleSheet(STYLESHEET)
@@ -197,10 +202,11 @@ def main():
         try:
             from ui.pages.departments_page import open_modal
             open_modal(window, window.app_state)
-            # После закрытия — обновить preview_dept если открыта
-            pd = _page_cache.get("preview_dept")
-            if pd is not None and hasattr(pd, "refresh"):
-                pd.refresh()
+            # После закрытия — обновить preview страницы если открыты
+            for name in ("preview_dept", "preview_general"):
+                p = _page_cache.get(name)
+                if p is not None and hasattr(p, "refresh"):
+                    p.refresh()
         except Exception:
             log.critical("Ошибка при открытии departments:\n%s", traceback.format_exc())
             try:
@@ -223,6 +229,10 @@ def main():
             if window.app_state.get("open_departments_after_products"):
                 window.app_state["open_departments_after_products"] = False
                 _open_departments()
+            for name in ("preview_dept", "preview_general"):
+                p = _page_cache.get(name)
+                if p is not None and hasattr(p, "refresh"):
+                    p.refresh()
         except Exception:
             log.critical("Ошибка при открытии products:\n%s", traceback.format_exc())
             try:
@@ -283,19 +293,6 @@ def main():
     }
 
     # ── Очистка маршрутов ───────────────────────────────────────────────────
-
-    def _clear_last_routes_only():
-        """Очищает только сохранённые «последние» маршруты (остаётся на дашборде)."""
-        from core import data_store
-        data_store.clear_last_routes()
-        dashboard = _page_cache.get("dashboard")
-        if dashboard is not None and hasattr(dashboard, "refresh"):
-            dashboard.refresh()
-        try:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.information(window, "Готово", "Сохранённые маршруты удалены.")
-        except Exception:
-            pass
 
     def _clear_routes_and_go_dashboard():
         """Очищает app_state и последние маршруты, переходит на дашборд."""
@@ -373,9 +370,11 @@ def main():
                 from ui.pages.dashboard_page import DashboardPage
                 page = DashboardPage(window.app_state)
                 page.open_history.connect(lambda: _open_history_and_go_preview(None))
-                page.clear_last_routes.connect(_clear_last_routes_only)
-                if hasattr(page, "open_rounding_settings"):
-                    page.open_rounding_settings.connect(_open_quantity_settings)
+                page.go_process_files.connect(lambda: navigate("home"))
+                page.go_last_main.connect(lambda: _load_last_and_go_preview("main"))
+                page.go_last_increase.connect(lambda: _load_last_and_go_preview("increase"))
+                page.go_labels.connect(lambda: navigate("labels"))
+                page.go_clear.connect(_clear_routes_and_go_dashboard)
 
             elif name == "home":
                 from ui.pages.home_page import HomePage
@@ -450,6 +449,8 @@ def main():
             )
             if hasattr(page, "refresh"):
                 page.refresh()
+            if hasattr(window, "_update_routes_dependent_tabs"):
+                window._update_routes_dependent_tabs()
         except Exception:
             log.critical("Ошибка при переходе на страницу '%s':\n%s",
                          page_name, traceback.format_exc())

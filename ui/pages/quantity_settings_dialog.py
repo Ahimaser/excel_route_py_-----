@@ -11,7 +11,8 @@ from __future__ import annotations
 import copy
 from typing import Iterable
 
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtGui import QFont, QColor, QBrush
 from PyQt6.QtWidgets import (
     QDialog,
@@ -28,6 +29,8 @@ from PyQt6.QtWidgets import (
     QFrame,
     QGroupBox,
     QTabWidget,
+    QGridLayout,
+    QComboBox,
 )
 
 from core import data_store, excel_generator
@@ -128,6 +131,34 @@ class ProductPcsPanel(QFrame):
         row2.addStretch()
         lay.addLayout(row2)
 
+        # От кол-ва (минимальное для округления)
+        row_min = QHBoxLayout()
+        row_min.addWidget(QLabel("От кол-ва шт:"))
+        self.spin_min_qty = QDoubleSpinBox()
+        self.spin_min_qty.setRange(0, 99999.0)
+        self.spin_min_qty.setDecimals(3)
+        self.spin_min_qty.setSingleStep(0.1)
+        self.spin_min_qty.setToolTip("Ниже этого количества — 0 шт. От этого и выше — расчёт по «Кол-во в 1 шт» и округлению.")
+        self.spin_min_qty.valueChanged.connect(self._on_min_qty_changed)
+        row_min.addWidget(self.spin_min_qty)
+        row_min.addStretch()
+        lay.addLayout(row_min)
+
+        # В Грязные (только подотдел Чищенка: конвертация 1,25, без этикеток, колонка «Грязные»)
+        self.row_dirty_widget = QWidget()
+        row_dirty = QHBoxLayout(self.row_dirty_widget)
+        row_dirty.setContentsMargins(0, 0, 0, 0)
+        self.chk_show_in_dirty = ToggleSwitch()
+        self.chk_show_in_dirty.setToolTip(
+            "Только для подотдела «Чищенка». Отображать в «Грязные» (×1,25). "
+            "Этикетки на продукт не печатаются. В таблицах добавляется колонка «Грязные»."
+        )
+        self.chk_show_in_dirty.stateChanged.connect(self._on_show_in_dirty_changed)
+        row_dirty.addWidget(QLabel("В Грязные:"))
+        row_dirty.addWidget(self.chk_show_in_dirty)
+        row_dirty.addStretch()
+        lay.addWidget(self.row_dirty_widget)
+
         self.lbl_hint = QLabel(
             "Пороги округления Шт для школ и садов задаются выше на уровне отдела или подотдела."
         )
@@ -144,12 +175,16 @@ class ProductPcsPanel(QFrame):
         if not prod:
             self.chk_show.setEnabled(False)
             self.spin_pcs.setEnabled(False)
+            self.spin_min_qty.setEnabled(False)
+            self.row_dirty_widget.setVisible(False)
             self._loading = False
             return
         unit = (prod.get("unit") or "").strip().lower()
         if unit == "шт":
             self.chk_show.setEnabled(False)
             self.spin_pcs.setEnabled(False)
+            self.spin_min_qty.setEnabled(False)
+            self.row_dirty_widget.setVisible(False)
             self._loading = False
             return
         show_pcs = prod.get("showPcs", False)
@@ -157,6 +192,11 @@ class ProductPcsPanel(QFrame):
         pcs_per_unit = float(prod.get("pcsPerUnit", 1.0) or 1.0)
         self.spin_pcs.setValue(pcs_per_unit)
         self.spin_pcs.setEnabled(show_pcs)
+        self.spin_min_qty.setValue(prod.get("minQtyForPcs", 0) or 0)
+        self.spin_min_qty.setEnabled(show_pcs)
+        self.chk_show_in_dirty.setChecked(bool(prod.get("showInDirty", False)))
+        in_chistchenka = data_store.is_subdept_chistchenka(prod.get("deptKey"))
+        self.row_dirty_widget.setVisible(in_chistchenka)
         self._loading = False
 
     def set_total_pcs_text(self, text: str) -> None:
@@ -172,7 +212,25 @@ class ProductPcsPanel(QFrame):
             return
         show = state == Qt.CheckState.Checked.value
         self.spin_pcs.setEnabled(show)
+        self.spin_min_qty.setEnabled(show)
         data_store.update_product(self._product_name, showPcs=show)
+        self._notify_changed()
+
+    def _on_min_qty_changed(self, val: float) -> None:
+        if self._loading:
+            return
+        data_store.update_product(self._product_name, minQtyForPcs=val if val > 0 else None)
+        self._notify_changed()
+
+    def _on_show_in_dirty_changed(self, state: int) -> None:
+        if self._loading:
+            return
+        enabled = state == Qt.CheckState.Checked.value
+        data_store.update_product(
+            self._product_name,
+            showInDirty=enabled,
+            quantityMultiplier=1.25 if enabled else None,
+        )
         self._notify_changed()
 
     def _on_pcs_changed(self, val: float) -> None:
@@ -200,6 +258,77 @@ class ProductPcsPanel(QFrame):
             roundTailFromСД=_percent_to_tail_value(sd_percent, val),
         )
         self._notify_changed()
+
+
+# ─────────────────────────── Окно настройки продукта (вариант F) ─────────────
+
+class ProductPcsSettingsDialog(QDialog):
+    """Отдельное модальное окно настройки Шт для одного продукта."""
+
+    open_next_requested = pyqtSignal(str)
+
+    def __init__(
+        self,
+        product_name: str,
+        product_list: list[str],
+        app_state: dict,
+        on_changed_callback=None,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self._product_name = product_name
+        self._product_list = product_list
+        self._on_changed_cb = on_changed_callback
+        self.setWindowTitle(f"Настройки: {product_name}")
+        self.setMinimumSize(380, 320)
+        self.resize(420, 380)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(12)
+
+        self._panel = ProductPcsPanel(product_name, on_changed=self._on_panel_changed, parent=self)
+        lay.addWidget(self._panel)
+
+        pcs_totals = _calc_product_pcs_totals(app_state)
+        products_ref = data_store.get_ref("products") or []
+        by_name = {p.get("name"): p for p in products_ref if p.get("name")}
+        prod = by_name.get(product_name) or {}
+        if prod.get("showPcs"):
+            total_text = f"Всего по маршрутам: {_format_pcs_total(pcs_totals.get(product_name, 0.0))}"
+            self._panel.set_total_pcs_text(total_text)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self._btn_next = QPushButton("Настроить следующий")
+        self._btn_next.setObjectName("btnSecondary")
+        self._btn_next.clicked.connect(self._on_next_clicked)
+        self._update_next_button()
+        btn_row.addWidget(self._btn_next)
+        btn_close = QPushButton("Закрыть")
+        btn_close.setObjectName("btnPrimary")
+        btn_close.clicked.connect(self.accept)
+        btn_row.addWidget(btn_close)
+        lay.addLayout(btn_row)
+
+        QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self.accept)
+
+    def _update_next_button(self) -> None:
+        idx = self._product_list.index(self._product_name) if self._product_name in self._product_list else -1
+        has_next = 0 <= idx < len(self._product_list) - 1
+        self._btn_next.setVisible(has_next)
+
+    def _on_panel_changed(self, product_name: str) -> None:
+        if callable(self._on_changed_cb):
+            self._on_changed_cb(product_name)
+
+    def _on_next_clicked(self) -> None:
+        idx = self._product_list.index(self._product_name) if self._product_name in self._product_list else -1
+        if 0 <= idx < len(self._product_list) - 1:
+            next_name = self._product_list[idx + 1]
+            self.open_next_requested.emit(next_name)
+            # Слот родителя закроет диалог и откроет следующий
 
 
 # ─────────────────────────── Строка списка: название продукта ────────────────
@@ -254,8 +383,72 @@ class ProductRowWidget(QWidget):
         self.lbl_mode.setVisible(bool(text))
 
 
+class ProductCardWidget(QFrame):
+    """Карточка продукта: название, бейдж единицы, превью настроек. Клик — выбор."""
+
+    clicked = pyqtSignal(str)
+
+    def __init__(self, product_name: str, parent=None):
+        super().__init__(parent)
+        self.product_name = product_name
+        self._selected = False
+        self.setObjectName("productCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(120)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(6)
+
+        top_row = QHBoxLayout()
+        self.lbl_name = QLabel(product_name)
+        self.lbl_name.setObjectName("cardTitle")
+        self.lbl_name.setWordWrap(True)
+        self.lbl_name.setAlignment(Qt.AlignmentFlag.AlignTop)
+        font = QFont()
+        font.setPointSize(14)
+        font.setWeight(500)
+        self.lbl_name.setFont(font)
+        top_row.addWidget(self.lbl_name, 1)
+        self.lbl_badge = QLabel("")
+        self.lbl_badge.setObjectName("badge")
+        self.lbl_badge.setVisible(False)
+        top_row.addWidget(self.lbl_badge, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        lay.addLayout(top_row)
+
+        self.lbl_preview = QLabel("")
+        self.lbl_preview.setObjectName("hintLabel")
+        self.lbl_preview.setWordWrap(True)
+        self.lbl_preview.setStyleSheet("font-size: 12px; color: #6B7280;")
+        lay.addWidget(self.lbl_preview)
+
+    def set_preview_text(self, text: str) -> None:
+        self.lbl_preview.setText(text)
+        self.lbl_preview.setVisible(bool(text))
+
+    def set_unit_badge(self, unit: str) -> None:
+        if unit:
+            self.lbl_badge.setText(unit)
+            self.lbl_badge.setVisible(True)
+        else:
+            self.lbl_badge.setVisible(False)
+
+    def set_tooltip_text(self, text: str) -> None:
+        self.setToolTip(text)
+
+    def set_selected(self, selected: bool) -> None:
+        self._selected = selected
+        self.setObjectName("productCardSelected" if selected else "productCard")
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def mousePressEvent(self, event) -> None:
+        super().mousePressEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.product_name)
+
+
 class DeptRoundPanel(QFrame):
-    """Панель настройки округления Шт для выбранного контекста отдела."""
+    """Панель настройки порогов округления Шт для отдела: направление (>/<), режим (%/ед.), значение."""
 
     def __init__(
         self,
@@ -274,50 +467,67 @@ class DeptRoundPanel(QFrame):
         self.setObjectName("card")
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 12, 16, 12)
-        lay.setSpacing(10)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(12)
 
         self.lbl_title = QLabel(scope_label)
-        self.lbl_title.setObjectName("sectionTitle")
-        self.lbl_title.setWordWrap(True)
+        self.lbl_title.setObjectName("cardTitle")
+        self.lbl_title.setWordWrap(False)
         lay.addWidget(self.lbl_title)
 
-        self.lbl_meta = QLabel("")
-        self.lbl_meta.setObjectName("hintLabel")
-        self.lbl_meta.setWordWrap(True)
-        lay.addWidget(self.lbl_meta)
-
-        self.lbl_mixed = QLabel("")
-        self.lbl_mixed.setObjectName("stepLabel")
-        self.lbl_mixed.setWordWrap(True)
-        self.lbl_mixed.setVisible(False)
-        lay.addWidget(self.lbl_mixed)
-
         row_shk = QHBoxLayout()
-        row_shk.addWidget(QLabel("Школы (% остатка для округления):"))
+        row_shk.setSpacing(10)
+        row_shk.addWidget(QLabel("ШК:"))
+        self.combo_dir_shk = QComboBox()
+        self.combo_dir_shk.addItems(["> (вверх)", "< (вниз)"])
+        self.combo_dir_shk.setMaximumWidth(100)
+        self.combo_dir_shk.currentIndexChanged.connect(self._on_shk_ui_changed)
+        row_shk.addWidget(self.combo_dir_shk)
+        self.combo_mode_shk = QComboBox()
+        self.combo_mode_shk.addItems([" %", " ед."])
+        self.combo_mode_shk.setMaximumWidth(70)
+        self.combo_mode_shk.currentIndexChanged.connect(self._on_shk_mode_changed)
+        row_shk.addWidget(self.combo_mode_shk)
         self.spin_shk = QDoubleSpinBox()
         self.spin_shk.setRange(0, 100.0)
         self.spin_shk.setDecimals(1)
         self.spin_shk.setSuffix(" %")
         self.spin_shk.setSingleStep(5.0)
+        self.spin_shk.setMaximumWidth(70)
         self.spin_shk.valueChanged.connect(self._on_shk_changed)
         row_shk.addWidget(self.spin_shk)
         row_shk.addStretch()
         lay.addLayout(row_shk)
 
         row_sd = QHBoxLayout()
-        row_sd.addWidget(QLabel("Сады (% остатка для округления):"))
+        row_sd.setSpacing(10)
+        row_sd.addWidget(QLabel("СД:"))
+        self.combo_dir_sd = QComboBox()
+        self.combo_dir_sd.addItems(["> (вверх)", "< (вниз)"])
+        self.combo_dir_sd.setMaximumWidth(100)
+        self.combo_dir_sd.currentIndexChanged.connect(self._on_sd_ui_changed)
+        row_sd.addWidget(self.combo_dir_sd)
+        self.combo_mode_sd = QComboBox()
+        self.combo_mode_sd.addItems([" %", " ед."])
+        self.combo_mode_sd.setMaximumWidth(70)
+        self.combo_mode_sd.currentIndexChanged.connect(self._on_sd_mode_changed)
+        row_sd.addWidget(self.combo_mode_sd)
         self.spin_sd = QDoubleSpinBox()
         self.spin_sd.setRange(0, 100.0)
         self.spin_sd.setDecimals(1)
         self.spin_sd.setSuffix(" %")
         self.spin_sd.setSingleStep(5.0)
+        self.spin_sd.setMaximumWidth(70)
         self.spin_sd.valueChanged.connect(self._on_sd_changed)
         row_sd.addWidget(self.spin_sd)
         row_sd.addStretch()
         lay.addLayout(row_sd)
 
-        lay.addStretch()
+        self.lbl_mixed = QLabel("")
+        self.lbl_mixed.setObjectName("stepLabel")
+        self.lbl_mixed.setWordWrap(True)
+        self.lbl_mixed.setVisible(False)
+        lay.addWidget(self.lbl_mixed)
         self._load()
 
     def _dept_products(self) -> list[dict]:
@@ -329,35 +539,95 @@ class DeptRoundPanel(QFrame):
             and (p.get("unit") or "").strip().lower() != "шт"
         ]
 
-    def _product_percent(self, prod: dict, route_cat: str) -> float:
+    def _product_tail_value(self, prod: dict, route_cat: str) -> float | None:
         pcs_per_unit = float(prod.get("pcsPerUnit", 1.0) or 1.0)
         if route_cat == "СД":
             tail_value = prod.get("roundTailFromСД")
-            if tail_value is None:
-                tail_value = 0 if prod.get("roundUpСД", True) else pcs_per_unit
+            round_up = prod.get("roundUpСД", True)
         else:
             tail_value = prod.get("roundTailFromШК")
-            if tail_value is None:
-                tail_value = 0 if prod.get("roundUpШК", True) else pcs_per_unit
-        return round(_tail_value_to_percent(tail_value, pcs_per_unit), 1)
+            round_up = prod.get("roundUpШК", True)
+        if tail_value is not None:
+            return float(tail_value)
+        return 0.0 if round_up else pcs_per_unit
+
+    def _product_direction(self, prod: dict, route_cat: str) -> bool:
+        """True = вверх (>), False = вниз (<)."""
+        if route_cat == "СД":
+            return prod.get("roundUpСД", True)
+        return prod.get("roundUpШК", True)
+
+    def _max_pcs_per_unit(self) -> float:
+        products = self._dept_products()
+        if not products:
+            return 100.0
+        return max(float(p.get("pcsPerUnit", 1.0) or 1.0) for p in products)
+
+    def _update_spin_for_mode(self, spin: QDoubleSpinBox, combo_mode: QComboBox, route_cat: str) -> None:
+        is_pct = combo_mode.currentIndex() == 0
+        spin.setSuffix(" %" if is_pct else " ед.")
+        if is_pct:
+            spin.setRange(0, 100.0)
+            spin.setDecimals(1)
+        else:
+            mx = self._max_pcs_per_unit()
+            spin.setRange(0, max(mx * 2, 100.0))
+            spin.setDecimals(2)
+        spin.setSingleStep(5.0 if is_pct else 0.1)
 
     def _load(self) -> None:
         self._loading = True
         products = self._dept_products()
-        total = len(products)
-        enabled = sum(1 for p in products if p.get("showPcs"))
         self.lbl_title.setText(self._scope_label)
-        self.lbl_meta.setText(
-            f"Товаров в текущем блоке: {total}. С включённым отображением Шт: {enabled}."
-        )
-        shk_values = sorted({self._product_percent(prod, "ШК") for prod in products}) or [0.0]
-        sd_values = sorted({self._product_percent(prod, "СД") for prod in products}) or [0.0]
-        self.spin_shk.setValue(shk_values[0])
-        self.spin_sd.setValue(sd_values[0])
+
+        shk_tails = [self._product_tail_value(p, "ШК") for p in products]
+        sd_tails = [self._product_tail_value(p, "СД") for p in products]
+        shk_dirs = [self._product_direction(p, "ШК") for p in products]
+        sd_dirs = [self._product_direction(p, "СД") for p in products]
+
+        shk_up = all(shk_dirs) if shk_dirs else True
+        sd_up = all(sd_dirs) if sd_dirs else True
+        self.combo_dir_shk.setCurrentIndex(0 if shk_up else 1)
+        self.combo_dir_sd.setCurrentIndex(0 if sd_up else 1)
+
+        self._update_spin_for_mode(self.spin_shk, self.combo_mode_shk, "ШК")
+        self._update_spin_for_mode(self.spin_sd, self.combo_mode_sd, "СД")
+
+        pcu_set = {float(p.get("pcsPerUnit", 1.0) or 1.0) for p in products}
+        use_pct = len(pcu_set) <= 1
+        self.combo_mode_shk.setCurrentIndex(0 if use_pct else 1)
+        self.combo_mode_sd.setCurrentIndex(0 if use_pct else 1)
+        self._update_spin_for_mode(self.spin_shk, self.combo_mode_shk, "ШК")
+        self._update_spin_for_mode(self.spin_sd, self.combo_mode_sd, "СД")
+
+        first = products[0] if products else None
+        if first:
+            pcu = float(first.get("pcsPerUnit", 1.0) or 1.0)
+            tv_shk = self._product_tail_value(first, "ШК")
+            tv_sd = self._product_tail_value(first, "СД")
+            if use_pct:
+                self.spin_shk.setValue(
+                    round(_tail_value_to_percent(tv_shk or 0, pcu), 1) if shk_up else 0.0
+                )
+                self.spin_sd.setValue(
+                    round(_tail_value_to_percent(tv_sd or 0, pcu), 1) if sd_up else 0.0
+                )
+            else:
+                self.spin_shk.setValue(round(tv_shk or 0, 2) if shk_up else 0.0)
+                self.spin_sd.setValue(round(tv_sd or 0, 2) if sd_up else 0.0)
+        else:
+            self.spin_shk.setValue(0.0)
+            self.spin_sd.setValue(0.0)
+
+        self._set_spin_enabled("ШК", shk_up)
+        self._set_spin_enabled("СД", sd_up)
+
         mixed_parts = []
-        if len(shk_values) > 1:
+        shk_vals = sorted({self._product_tail_value(p, "ШК") for p in products}) or [0.0]
+        sd_vals = sorted({self._product_tail_value(p, "СД") for p in products}) or [0.0]
+        if len(shk_vals) > 1:
             mixed_parts.append("Школы")
-        if len(sd_values) > 1:
+        if len(sd_vals) > 1:
             mixed_parts.append("Сады")
         if mixed_parts:
             self.lbl_mixed.setText(
@@ -371,9 +641,18 @@ class DeptRoundPanel(QFrame):
             self.lbl_mixed.setText("")
         self._loading = False
 
-    def _apply_percent(self, route_cat: str, percent_value: float) -> None:
+    def _set_spin_enabled(self, route_cat: str, enabled: bool) -> None:
+        if route_cat == "ШК":
+            self.spin_shk.setEnabled(enabled)
+            self.combo_mode_shk.setEnabled(enabled)
+        else:
+            self.spin_sd.setEnabled(enabled)
+            self.combo_mode_sd.setEnabled(enabled)
+
+    def _apply_rounding(self, route_cat: str, direction_up: bool, value: float, is_pct: bool) -> None:
         products = data_store.get("products") or []
-        field = "roundTailFromСД" if route_cat == "СД" else "roundTailFromШК"
+        tail_field = "roundTailFromСД" if route_cat == "СД" else "roundTailFromШК"
+        up_field = "roundUpСД" if route_cat == "СД" else "roundUpШК"
         changed = False
         for prod in products:
             if prod.get("deptKey") not in self._dept_keys:
@@ -383,7 +662,13 @@ class DeptRoundPanel(QFrame):
             if (prod.get("unit") or "").strip().lower() == "шт":
                 continue
             pcs_per_unit = float(prod.get("pcsPerUnit", 1.0) or 1.0)
-            prod[field] = _percent_to_tail_value(percent_value, pcs_per_unit)
+            if direction_up:
+                tail_val = _percent_to_tail_value(value, pcs_per_unit) if is_pct else value
+                prod[tail_field] = max(0.0, float(tail_val))
+                prod[up_field] = True
+            else:
+                prod[tail_field] = None
+                prod[up_field] = False
             changed = True
         if not changed:
             return
@@ -392,15 +677,69 @@ class DeptRoundPanel(QFrame):
         if callable(self._on_changed_cb):
             self._on_changed_cb(self._scope_id)
 
+    def _on_shk_mode_changed(self, _idx: int) -> None:
+        if self._loading:
+            return
+        self._update_spin_for_mode(self.spin_shk, self.combo_mode_shk, "ШК")
+        products = self._dept_products()
+        if products:
+            pcu = float(products[0].get("pcsPerUnit", 1.0) or 1.0)
+            tv = self._product_tail_value(products[0], "ШК") or 0
+            is_pct = self.combo_mode_shk.currentIndex() == 0
+            self.spin_shk.setValue(
+                round(_tail_value_to_percent(tv, pcu), 1) if is_pct else round(tv, 2)
+            )
+
+    def _on_sd_mode_changed(self, _idx: int) -> None:
+        if self._loading:
+            return
+        self._update_spin_for_mode(self.spin_sd, self.combo_mode_sd, "СД")
+        products = self._dept_products()
+        if products:
+            pcu = float(products[0].get("pcsPerUnit", 1.0) or 1.0)
+            tv = self._product_tail_value(products[0], "СД") or 0
+            is_pct = self.combo_mode_sd.currentIndex() == 0
+            self.spin_sd.setValue(
+                round(_tail_value_to_percent(tv, pcu), 1) if is_pct else round(tv, 2)
+            )
+
+    def _on_shk_ui_changed(self, idx: int) -> None:
+        if self._loading:
+            return
+        up = idx == 0
+        self._set_spin_enabled("ШК", up)
+        if up:
+            is_pct = self.combo_mode_shk.currentIndex() == 0
+            self._apply_rounding("ШК", True, self.spin_shk.value(), is_pct)
+        else:
+            self._apply_rounding("ШК", False, 0, False)
+
+    def _on_sd_ui_changed(self, idx: int) -> None:
+        if self._loading:
+            return
+        up = idx == 0
+        self._set_spin_enabled("СД", up)
+        if up:
+            is_pct = self.combo_mode_sd.currentIndex() == 0
+            self._apply_rounding("СД", True, self.spin_sd.value(), is_pct)
+        else:
+            self._apply_rounding("СД", False, 0, False)
+
     def _on_shk_changed(self, val: float) -> None:
         if self._loading:
             return
-        self._apply_percent("ШК", val)
+        if self.combo_dir_shk.currentIndex() != 0:
+            return
+        is_pct = self.combo_mode_shk.currentIndex() == 0
+        self._apply_rounding("ШК", True, val, is_pct)
 
     def _on_sd_changed(self, val: float) -> None:
         if self._loading:
             return
-        self._apply_percent("СД", val)
+        if self.combo_dir_sd.currentIndex() != 0:
+            return
+        is_pct = self.combo_mode_sd.currentIndex() == 0
+        self._apply_rounding("СД", True, val, is_pct)
 
 
 class InstitutionStatusRowWidget(QFrame):
@@ -1004,13 +1343,14 @@ class InstitutionsDialog(QDialog):
 # ─────────────────────────── Диалог «Настройки Количества» ────────────────────
 
 class QuantitySettingsDialog(QDialog):
-    """Окно настроек количества: вкладки отделов, контекст слева, товары и 1 шт справа."""
+    """Окно настроек: отделы сверху, подотделы при выборе, карточки продуктов."""
 
     def __init__(self, parent: QWidget | None, app_state: dict):
         super().__init__(parent)
         self.setWindowTitle("Настройки Количества")
-        self.setMinimumSize(720, 560)
-        self.resize(800, 620)
+        self.setObjectName("quantitySettingsDialog")
+        self.setMinimumSize(700, 560)
+        self.resize(900, 680)
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
 
         self._app_state = app_state
@@ -1019,13 +1359,15 @@ class QuantitySettingsDialog(QDialog):
         self._current_scope_id: str | None = None
         self._current_scope_keys: list[str] = []
         self._scope_panels: dict[str, DeptRoundPanel] = {}
-        self._expanded_name: str | None = None
-        self._product_panels: dict[str, ProductPcsPanel] = {}
-        self._product_row_widgets: dict[str, ProductRowWidget] = {}
+        self._product_cards: dict[str, ProductCardWidget] = {}
         self._pcs_totals_by_product: dict[str, float] = {}
+        self._dept_buttons: list[QPushButton] = []
+        self._subdept_buttons: list[QPushButton] = []
+        self._subdept_scopes: list[dict] = []
 
         self._build_ui()
-        self._fill_products()
+        self._fill_data()
+        QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self.reject)
 
     def _build_ui(self) -> None:
         content = QWidget()
@@ -1033,14 +1375,14 @@ class QuantitySettingsDialog(QDialog):
         lay.setContentsMargins(24, 20, 24, 20)
         lay.setSpacing(16)
 
-        # Заголовок
         lbl_title = QLabel("Настройки Количества")
         lbl_title.setObjectName("sectionTitle")
         lay.addWidget(lbl_title)
 
         hint = QLabel(
-            "Выберите отдел сверху. Если у него есть подотделы, ниже появятся отдельные вкладки подотделов. "
-            "Справа задаются проценты округления Шт для школ и садов и настраивается 1 шт по товарам."
+            "Выберите отдел. Подотделы (если есть) отобразятся под отделами при выборе. "
+            "Товары отдела — без подотделов; товары подотдела — только при его выборе. "
+            "Клик по карточке — настройка 1 шт."
         )
         hint.setObjectName("stepLabel")
         hint.setWordWrap(True)
@@ -1051,100 +1393,97 @@ class QuantitySettingsDialog(QDialog):
         inst_lay = QHBoxLayout(inst_card)
         inst_lay.setContentsMargins(16, 14, 16, 14)
         inst_lay.setSpacing(12)
-
         inst_text = QVBoxLayout()
         inst_text.setSpacing(4)
         inst_title = QLabel("Округление по учреждениям")
         inst_title.setObjectName("sectionTitle")
         inst_text.addWidget(inst_title)
-        inst_hint = QLabel(
-            "Отдельная настройка для учреждений и адресов сохраняется и работает так же, как раньше."
-        )
+        inst_hint = QLabel("Отдельная настройка для учреждений и адресов.")
         inst_hint.setObjectName("hintLabel")
         inst_hint.setWordWrap(True)
         inst_text.addWidget(inst_hint)
         inst_lay.addLayout(inst_text, 1)
-
         btn_inst = QPushButton("Открыть...")
         btn_inst.setObjectName("btnSecondary")
         btn_inst.clicked.connect(self._open_institutions_dialog)
         inst_lay.addWidget(btn_inst, alignment=Qt.AlignmentFlag.AlignVCenter)
         lay.addWidget(inst_card)
 
-        self.tabs = QTabWidget()
-        self.tabs.currentChanged.connect(self._on_tab_changed)
-        lay.addWidget(self.tabs)
+        dept_row = QHBoxLayout()
+        dept_row.setSpacing(8)
+        dept_tabs_frame = QFrame()
+        dept_tabs_frame.setObjectName("deptTabsBar")
+        dept_btns_lay = QHBoxLayout(dept_tabs_frame)
+        dept_btns_lay.setContentsMargins(8, 6, 8, 6)
+        dept_btns_lay.setSpacing(6)
+        self.dept_buttons_widget = dept_tabs_frame
+        dept_row.addWidget(dept_tabs_frame)
+        dept_row.addStretch()
+        lay.addLayout(dept_row)
 
-        self.subtabs = QTabWidget()
-        self.subtabs.currentChanged.connect(self._on_subtab_changed)
-        self.subtabs.setVisible(False)
-        lay.addWidget(self.subtabs)
+        self.subdept_buttons_widget = QFrame()
+        self.subdept_buttons_widget.setObjectName("subdeptPillsBar")
+        self.subdept_buttons_widget.setVisible(False)
+        self.subdept_btns_lay = QHBoxLayout(self.subdept_buttons_widget)
+        self.subdept_btns_lay.setContentsMargins(0, 4, 0, 4)
+        self.subdept_btns_lay.setSpacing(6)
+        lay.addWidget(self.subdept_buttons_widget)
 
+        # Настройки округления хвостика — под выбором отдела, видны при выборе
         self.dept_panel_host = QFrame()
         self.dept_panel_host.setFrameShape(QFrame.Shape.StyledPanel)
+        self.dept_panel_host.setVisible(False)
         self.dept_panel_lay = QVBoxLayout(self.dept_panel_host)
-        self.dept_panel_lay.setContentsMargins(12, 12, 12, 12)
-        self.dept_panel_lay.setSpacing(8)
-        self.dept_panel_placeholder = QLabel("Выберите вкладку сверху.")
+        self.dept_panel_lay.setContentsMargins(12, 10, 12, 10)
+        self.dept_panel_placeholder = QLabel("Выберите отдел для настройки округления.")
         self.dept_panel_placeholder.setObjectName("hintLabel")
-        self.dept_panel_placeholder.setWordWrap(True)
+        self.dept_panel_placeholder.setWordWrap(False)
         self.dept_panel_lay.addWidget(self.dept_panel_placeholder)
         lay.addWidget(self.dept_panel_host)
 
-        products_card = QFrame()
-        products_card.setObjectName("card")
-        products_lay = QVBoxLayout(products_card)
-        products_lay.setContentsMargins(16, 16, 16, 16)
-        products_lay.setSpacing(12)
+        main_row = QHBoxLayout()
+        main_row.setSpacing(16)
 
-        lbl_product_title = QLabel("Настройка 1 шт товара")
-        lbl_product_title.setObjectName("sectionTitle")
-        products_lay.addWidget(lbl_product_title)
+        left_card = QFrame()
+        left_card.setObjectName("card")
+        left_card.setMinimumWidth(400)
+        left_lay = QVBoxLayout(left_card)
+        left_lay.setContentsMargins(16, 16, 16, 16)
+        left_lay.setSpacing(12)
+
+        products_header = QHBoxLayout()
+        lbl_products = QLabel("Продукты")
+        lbl_products.setObjectName("sectionTitle")
+        products_header.addWidget(lbl_products)
+        self.lbl_products_count = QLabel("")
+        self.lbl_products_count.setObjectName("hintLabel")
+        products_header.addWidget(self.lbl_products_count)
+        products_header.addStretch()
+        left_lay.addLayout(products_header)
 
         search_row = QHBoxLayout()
-        search_row.addWidget(QLabel("Поиск продукта:"))
+        search_row.addWidget(QLabel("Поиск:"))
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Введите часть названия продукта")
+        self.search_edit.setPlaceholderText("Введите часть названия продукта...")
         self.search_edit.textChanged.connect(self._apply_filter)
         search_row.addWidget(self.search_edit)
-        products_lay.addLayout(search_row)
+        left_lay.addLayout(search_row)
 
-        self.lbl_products_context = QLabel("")
-        self.lbl_products_context.setObjectName("hintLabel")
-        self.lbl_products_context.setWordWrap(True)
-        products_lay.addWidget(self.lbl_products_context)
+        self.cards_container = QWidget()
+        cards_inner = QVBoxLayout(self.cards_container)
+        self.cards_grid = QGridLayout()
+        self.cards_grid.setSpacing(12)
+        cards_inner.addLayout(self.cards_grid)
+        self.lbl_no_products = QLabel("В выбранном отделе нет товаров для настройки Шт.")
+        self.lbl_no_products.setObjectName("hintLabel")
+        self.lbl_no_products.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_no_products.setVisible(False)
+        cards_inner.addWidget(self.lbl_no_products, 1)
+        left_lay.addWidget(self.cards_container, 1)
 
-        main_row = QHBoxLayout()
-        main_row.setSpacing(12)
+        main_row.addWidget(left_card, 1)
 
-        self.products_list = QListWidget()
-        self.products_list.setAlternatingRowColors(True)
-        self.products_list.setMinimumWidth(260)
-        self.products_list.setSpacing(2)
-        self.products_list.itemDoubleClicked.connect(self._on_item_double_clicked)
-        main_row.addWidget(self.products_list, 1)
-
-        self.panel_stack = QFrame()
-        self.panel_stack.setFrameShape(QFrame.Shape.StyledPanel)
-        self.panel_lay = QVBoxLayout(self.panel_stack)
-        self.panel_lay.setContentsMargins(12, 12, 12, 12)
-        self.panel_lay.setSpacing(8)
-
-        self.panel_title = QLabel()
-        self.panel_title.setObjectName("sectionTitle")
-        self.panel_title.setWordWrap(True)
-        self.panel_title.setVisible(False)
-        self.panel_lay.addWidget(self.panel_title)
-
-        self.panel_placeholder = QLabel("Дважды нажмите на продукт для настройки 1 шт.")
-        self.panel_placeholder.setObjectName("hintLabel")
-        self.panel_placeholder.setWordWrap(True)
-        self.panel_lay.addWidget(self.panel_placeholder)
-        main_row.addWidget(self.panel_stack, 2)
-
-        products_lay.addLayout(main_row)
-
-        lay.addWidget(products_card, 1)
+        lay.addLayout(main_row, 1)
 
         btn_close = QPushButton("Закрыть")
         btn_close.setObjectName("btnSecondary")
@@ -1230,56 +1569,94 @@ class QuantitySettingsDialog(QDialog):
             )
         return result
 
-    def _fill_products(self) -> None:
-        """Заполняет товары и вкладки отделов."""
-        self.products_list.clear()
-        self.tabs.clear()
-        self.subtabs.clear()
-        self.subtabs.setVisible(False)
+    def _fill_data(self) -> None:
+        """Заполняет кнопки отделов, подотделов и карточки продуктов."""
+        self._clear_dept_buttons()
+        self._clear_subdept_buttons()
+        self._clear_cards()
         self._tab_defs.clear()
         self._current_tab_key = None
         self._current_scope_id = None
         self._current_scope_keys = []
         self._clear_panel_widgets(self.dept_panel_lay, keep_first=1)
         self._scope_panels.clear()
-        self._clear_panel_widgets(self.panel_lay, keep_first=2)
-        self._product_panels.clear()
-        self._product_row_widgets.clear()
-        eligible = self._eligible_products()
-        for prod in eligible:
-            name = prod["name"]
-            item = QListWidgetItem()
-            item.setData(Qt.ItemDataRole.UserRole, name)
-            row = ProductRowWidget(name, self.products_list)
-            self._product_row_widgets[name] = row
-            self.products_list.addItem(item)
-            self.products_list.setItemWidget(item, row)
-            item.setSizeHint(QSize(self.products_list.width() or 260, ProductRowWidget.ROW_HEIGHT))
-        self._tab_defs = self._build_tab_defs(eligible)
-        self._populate_tabs()
-        self._refresh_all_pcs_totals()
-        self._apply_filter(self.search_edit.text())
+        self._product_cards.clear()
 
-    def _populate_tabs(self) -> None:
-        for tab_def in self._tab_defs:
-            self.tabs.addTab(QWidget(), tab_def["tab_text"])
+        eligible = self._eligible_products()
+        self._tab_defs = self._build_tab_defs(eligible)
         if not self._tab_defs:
             self._show_dept_placeholder()
-            self.lbl_products_context.setText("Нет отделов или подотделов с товарами для настройки Шт.")
             return
-        selected_index = 0
-        if self._current_tab_key:
-            for i, tab_def in enumerate(self._tab_defs):
-                if tab_def["dept_key"] == self._current_tab_key:
-                    selected_index = i
-                    break
-        self.tabs.setCurrentIndex(selected_index)
-        self._on_tab_changed(selected_index)
+        self._populate_dept_buttons()
+        self._refresh_all_pcs_totals()
+        self._on_dept_clicked(0)
+
+    def _clear_dept_buttons(self) -> None:
+        lay = self.dept_buttons_widget.layout()
+        while lay and lay.count():
+            item = lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self._dept_buttons.clear()
+
+    def _clear_subdept_buttons(self) -> None:
+        while self.subdept_btns_lay.count():
+            item = self.subdept_btns_lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self._subdept_buttons.clear()
+        self._subdept_scopes.clear()
+        self.subdept_buttons_widget.setVisible(False)
+
+    def _clear_cards(self) -> None:
+        while self.cards_grid.count():
+            item = self.cards_grid.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+    def _populate_dept_buttons(self) -> None:
+        lay = self.dept_buttons_widget.layout()
+        for i, tab_def in enumerate(self._tab_defs):
+            btn = QPushButton(tab_def["tab_text"])
+            btn.setObjectName("deptTab")
+            btn.setCheckable(True)
+            btn.setChecked(i == 0)
+            btn.setToolTip(f"Отдел: {tab_def['scope_label']}. Товаров: {tab_def['count']}")
+            btn.clicked.connect(lambda checked, idx=i: self._on_dept_clicked(idx))
+            lay.addWidget(btn)
+            self._dept_buttons.append(btn)
+        lay.addStretch()
+
+    def _populate_subdept_buttons(self, tab_def: dict) -> None:
+        self._clear_subdept_buttons()
+        self._subdept_scopes.clear()
+        sub_tabs = tab_def.get("sub_tabs", [])
+        if not sub_tabs:
+            self.subdept_buttons_widget.setVisible(False)
+            return
+        self.subdept_buttons_widget.setVisible(True)
+        default_scope = tab_def["default_scope"]
+        all_scopes = [default_scope] + sub_tabs
+        self._subdept_scopes = all_scopes
+        for i, scope_def in enumerate(all_scopes):
+            btn = QPushButton(scope_def["tab_text"])
+            btn.setObjectName("subdeptPill")
+            btn.setCheckable(True)
+            btn.setChecked(i == 0)
+            btn.setToolTip(scope_def.get("scope_label", scope_def["tab_text"]))
+            btn.clicked.connect(lambda c=False, s=scope_def: self._apply_scope(s))
+            self.subdept_btns_lay.addWidget(btn)
+            self._subdept_buttons.append(btn)
+        self.subdept_btns_lay.addStretch()
 
     def _show_dept_placeholder(self) -> None:
         for panel in self._scope_panels.values():
             panel.setVisible(False)
         self.dept_panel_placeholder.setVisible(True)
+        self.dept_panel_host.setVisible(False)
 
     def _show_scope_panel(self, scope_def: dict) -> None:
         scope_id = scope_def["scope_id"]
@@ -1297,91 +1674,113 @@ class QuantitySettingsDialog(QDialog):
         for key, panel in self._scope_panels.items():
             panel.setVisible(key == scope_id)
         self.dept_panel_placeholder.setVisible(False)
-
-    def _populate_subtabs(self, tab_def: dict) -> None:
-        self.subtabs.blockSignals(True)
-        self.subtabs.clear()
-        self.subtabs.addTab(QWidget(), tab_def["default_scope"]["tab_text"])
-        for scope_def in tab_def.get("sub_tabs", []):
-            self.subtabs.addTab(QWidget(), scope_def["tab_text"])
-        has_subtabs = bool(tab_def.get("sub_tabs"))
-        self.subtabs.setVisible(has_subtabs)
-        self.subtabs.setCurrentIndex(0)
-        self.subtabs.blockSignals(False)
+        self.dept_panel_host.setVisible(True)
 
     def _apply_scope(self, scope_def: dict | None) -> None:
         self._current_scope_id = scope_def["scope_id"] if scope_def else None
         self._current_scope_keys = list(scope_def.get("dept_keys", [])) if scope_def else []
+        for i, btn in enumerate(self._subdept_buttons):
+            if i < len(self._subdept_scopes) and scope_def and self._subdept_scopes[i].get("scope_id") == self._current_scope_id:
+                btn.setChecked(True)
+            else:
+                btn.setChecked(False)
         if scope_def:
             self._show_scope_panel(scope_def)
-            self.lbl_products_context.setText(f"Товары блока: {scope_def['scope_label']}.")
+            self._populate_cards()
         else:
             self._show_dept_placeholder()
-            self.lbl_products_context.setText("Сначала выберите вкладку сверху.")
+            self._clear_cards()
         self._apply_filter(self.search_edit.text())
 
-    def _on_tab_changed(self, index: int) -> None:
+    def _on_dept_clicked(self, index: int) -> None:
         if index < 0 or index >= len(self._tab_defs):
-            self._current_tab_key = None
-            self._current_scope_id = None
-            self._current_scope_keys = []
-            self.subtabs.clear()
-            self.subtabs.setVisible(False)
-            self._show_dept_placeholder()
-            self.lbl_products_context.setText("Нет отделов для настройки.")
-            self._apply_filter(self.search_edit.text())
             return
+        for i, btn in enumerate(self._dept_buttons):
+            btn.setChecked(i == index)
         tab_def = self._tab_defs[index]
         self._current_tab_key = tab_def["dept_key"]
-        self._populate_subtabs(tab_def)
-        self._apply_scope(tab_def["default_scope"])
-
-    def _on_subtab_changed(self, index: int) -> None:
-        if self.tabs.currentIndex() < 0 or self.tabs.currentIndex() >= len(self._tab_defs):
-            return
-        tab_def = self._tab_defs[self.tabs.currentIndex()]
-        if index <= 0:
+        self._populate_subdept_buttons(tab_def)
+        if tab_def.get("sub_tabs"):
             self._apply_scope(tab_def["default_scope"])
-            return
-        sub_tabs = tab_def.get("sub_tabs", [])
-        sub_index = index - 1
-        if 0 <= sub_index < len(sub_tabs):
-            self._apply_scope(sub_tabs[sub_index])
+        else:
+            self._apply_scope(tab_def["default_scope"])
+
+    def _populate_cards(self) -> None:
+        self._clear_cards()
+        self._product_cards.clear()
+        products = data_store.get_ref("products") or []
+        dept_by_name = {p.get("name"): p.get("deptKey") for p in products if p.get("name")}
+        by_name = {p.get("name"): p for p in products if p.get("name")}
+        scope_products = [
+            n for n, dk in dept_by_name.items()
+            if dk in self._current_scope_keys
+        ]
+        scope_products.sort(key=lambda x: (x or "").lower())
+        cnt = len(scope_products)
+        self.lbl_products_count.setText(f"({cnt} товаров)" if cnt else "(нет товаров)")
+        self.lbl_no_products.setVisible(cnt == 0)
+        cols = 4
+        for idx, name in enumerate(scope_products):
+            card = ProductCardWidget(name, self.cards_container)
+            card.clicked.connect(self._on_card_clicked)
+            prod = by_name.get(name) or {}
+            preview = self._card_preview_text(prod)
+            card.set_preview_text(preview)
+            unit = (prod.get("unit") or "").strip()
+            card.set_unit_badge(unit)
+            total = self._pcs_totals_by_product.get(name, 0)
+            card.set_tooltip_text(
+                f"{name}\n{preview}\n"
+                + (f"Всего по маршрутам: {_format_pcs_total(total)}" if prod.get("showPcs") else "")
+            )
+            self._product_cards[name] = card
+            row, col = divmod(idx, cols)
+            self.cards_grid.addWidget(card, row, col)
+
+        rows = (cnt + cols - 1) // cols if cnt else 0
+        card_h, gap = 120, 12
+        self.cards_container.setMinimumHeight(max(200, rows * card_h + max(0, rows - 1) * gap + 40))
+
+    def _card_preview_text(self, prod: dict) -> str:
+        parts = []
+        if prod.get("showPcs"):
+            pcu = prod.get("pcsPerUnit") or 1
+            unit = (prod.get("unit") or "").strip()
+            parts.append(f"Шт: ✓ {pcu} {unit}".strip())
+        else:
+            parts.append("Шт: выкл.")
+        if prod.get("showInDirty") and data_store.is_subdept_chistchenka(prod.get("deptKey")):
+            parts.append("В Грязные ✓")
+        pcs_per_unit = float(prod.get("pcsPerUnit", 1) or 1)
+        shk_pct = round(_tail_value_to_percent(
+            prod.get("roundTailFromШК") if prod.get("roundTailFromШК") is not None
+            else (0 if prod.get("roundUpШК", True) else pcs_per_unit),
+            pcs_per_unit,
+        ), 0)
+        sd_pct = round(_tail_value_to_percent(
+            prod.get("roundTailFromСД") if prod.get("roundTailFromСД") is not None
+            else (0 if prod.get("roundUpСД", True) else pcs_per_unit),
+            pcs_per_unit,
+        ), 0)
+        parts.append(f"Хвостик: ШК {shk_pct}%, СД {sd_pct}%")
+        return " | ".join(parts)
 
     def _on_scope_rounding_changed(self, scope_id: str) -> None:
         if scope_id in self._scope_panels:
             self._scope_panels[scope_id]._load()
-        if self._expanded_name:
-            products = data_store.get_ref("products") or []
-            prod = next((p for p in products if p.get("name") == self._expanded_name), None)
-            if (
-                prod
-                and prod.get("deptKey") in self._current_scope_keys
-                and self._expanded_name in self._product_panels
-            ):
-                self._product_panels[self._expanded_name]._load()
         self._refresh_all_pcs_totals()
+        self._refresh_card_previews()
+
+    def _refresh_card_previews(self) -> None:
+        products = data_store.get_ref("products") or []
+        by_name = {p.get("name"): p for p in products if p.get("name")}
+        for name, card in self._product_cards.items():
+            prod = by_name.get(name) or {}
+            card.set_preview_text(self._card_preview_text(prod))
 
     def _refresh_all_pcs_totals(self) -> None:
         self._pcs_totals_by_product = _calc_product_pcs_totals(self._app_state)
-        products_ref = data_store.get_ref("products") or []
-        by_name = {p.get("name"): p for p in products_ref if p.get("name")}
-        for name, row in self._product_row_widgets.items():
-            prod = by_name.get(name) or {}
-            total_text = ""
-            if prod.get("showPcs"):
-                total_text = f"Всего по текущим маршрутам: {_format_pcs_total(self._pcs_totals_by_product.get(name, 0.0))}"
-            row.set_total_pcs_text(total_text)
-            mode_text = ""
-            if excel_generator.get_dept_special_mode(prod.get("deptKey")) == "polufabricates":
-                mode_text = "Режим: Полуфабрикаты (без округления)"
-            row.set_mode_text(mode_text)
-        for name, panel in self._product_panels.items():
-            prod = by_name.get(name) or {}
-            total_text = ""
-            if prod.get("showPcs"):
-                total_text = f"Всего по текущим маршрутам: {_format_pcs_total(self._pcs_totals_by_product.get(name, 0.0))}"
-            panel.set_total_pcs_text(total_text)
+        self._refresh_card_previews()
 
     def _on_product_settings_changed(self, product_name: str) -> None:
         del product_name
@@ -1389,64 +1788,43 @@ class QuantitySettingsDialog(QDialog):
             self._scope_panels[self._current_scope_id]._load()
         self._refresh_all_pcs_totals()
 
-    def _on_item_double_clicked(self, list_item: QListWidgetItem) -> None:
-        """По двойному клику открывает/закрывает панель настроек в Шт для продукта."""
-        name = list_item.data(Qt.ItemDataRole.UserRole)
-        if name:
-            self._open_product_panel(name)
-
-    def _open_product_panel(self, product_name: str) -> None:
-        """Переключает видимость панели настроек продукта (открыть или закрыть при повторе)."""
-        if self._expanded_name == product_name:
-            self._expanded_name = None
-            self._show_panel_placeholder()
-            return
-        self._expanded_name = product_name
-        if product_name not in self._product_panels:
-            pan = ProductPcsPanel(product_name, on_changed=self._on_product_settings_changed, parent=self)
-            self._product_panels[product_name] = pan
-            self.panel_lay.addWidget(pan)
-            self._refresh_all_pcs_totals()
-        self._product_panels[product_name]._load()
-        for name, pan in self._product_panels.items():
-            pan.setVisible(name == product_name)
-        self.panel_placeholder.hide()
-        self.panel_title.setText(product_name)
-        self.panel_title.setVisible(True)
-
-    def _show_panel_placeholder(self) -> None:
-        for pan in self._product_panels.values():
-            pan.setVisible(False)
-        self.panel_title.setVisible(False)
-        self.panel_placeholder.setVisible(True)
-
-    def _apply_filter(self, text: str) -> None:
-        """Фильтрация списка продуктов по текущему блоку и подстроке."""
-        pattern = (text or "").strip().lower()
+    def _current_scope_product_list(self) -> list[str]:
+        """Список продуктов текущего отдела/подотдела (отсортированный)."""
         products = data_store.get_ref("products") or []
         dept_by_name = {p.get("name"): p.get("deptKey") for p in products if p.get("name")}
-        for i in range(self.products_list.count()):
-            item = self.products_list.item(i)
-            name = (item.data(Qt.ItemDataRole.UserRole) or "").lower()
-            item_name = item.data(Qt.ItemDataRole.UserRole) or ""
-            visible = (
-                (not pattern or pattern in name)
-                and (not self._current_scope_keys or dept_by_name.get(item_name) in self._current_scope_keys)
-            )
-            item.setHidden(not visible)
-        # Если текущий раскрытый продукт скрыт фильтром — свернуть панель
-        if self._expanded_name:
-            any_visible = False
-            for i in range(self.products_list.count()):
-                item = self.products_list.item(i)
-                if not item.isHidden() and (
-                    item.data(Qt.ItemDataRole.UserRole) == self._expanded_name
-                ):
-                    any_visible = True
-                    break
-            if not any_visible:
-                self._expanded_name = None
-                self._show_panel_placeholder()
+        scope_products = [
+            n for n, dk in dept_by_name.items()
+            if dk in self._current_scope_keys
+        ]
+        scope_products.sort(key=lambda x: (x or "").lower())
+        return scope_products
+
+    def _on_card_clicked(self, product_name: str) -> None:
+        self._open_product_pcs_dialog(product_name)
+
+    def _open_product_pcs_dialog(self, product_name: str) -> None:
+        product_list = self._current_scope_product_list()
+        dlg = ProductPcsSettingsDialog(
+            product_name,
+            product_list,
+            self._app_state,
+            on_changed_callback=self._on_product_settings_changed,
+            parent=self,
+        )
+        dlg.open_next_requested.connect(self._on_open_next_product)
+        dlg.exec()
+
+    def _on_open_next_product(self, next_product_name: str) -> None:
+        sender = self.sender()
+        if isinstance(sender, QDialog):
+            sender.accept()
+        self._open_product_pcs_dialog(next_product_name)
+
+    def _apply_filter(self, text: str) -> None:
+        pattern = (text or "").strip().lower()
+        for name, card in self._product_cards.items():
+            visible = not pattern or pattern in (name or "").lower()
+            card.setVisible(visible)
 
     def _open_institutions_dialog(self) -> None:
         dlg = InstitutionsDialog(self, self._app_state)

@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QFrame,
     QWidget,
+    QMessageBox,
+    QMenu,
 )
 
 from core import data_store
@@ -25,8 +27,7 @@ def _type_title(file_type: str) -> str:
 
 
 def _entry_text(entry: dict) -> str:
-    routes = entry.get("filteredRoutes") or entry.get("routes") or []
-    count = len(routes)
+    count = entry.get("count", 0)
     ts = str(entry.get("timestamp") or "").replace("T", " ")[:16]
     typ = _type_title(entry.get("fileType", "main"))
     cat = entry.get("routeCategory") or "ШК"
@@ -41,6 +42,7 @@ class RoutesHistoryDialog(QDialog):
         self._history_main: list[dict] = []
         self._history_increase: list[dict] = []
         self._selected: dict | None = None
+        self._loaded_entry: dict | None = None
         self._last_active_list: QListWidget | None = None
         self._build_ui()
         self._load_history()
@@ -72,6 +74,8 @@ class RoutesHistoryDialog(QDialog):
         lbl_main.setObjectName("sectionTitle")
         col_main_lay.addWidget(lbl_main)
         self.list_main = QListWidget()
+        self.list_main.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_main.customContextMenuRequested.connect(self._on_context_menu)
         self.list_main.itemDoubleClicked.connect(lambda: self._accept_from_list(self.list_main))
         self.list_main.currentItemChanged.connect(lambda c, p, l=self.list_main: self._on_current_changed(c, l))
         col_main_lay.addWidget(self.list_main, 1)
@@ -86,6 +90,8 @@ class RoutesHistoryDialog(QDialog):
         lbl_inc.setObjectName("sectionTitle")
         col_inc_lay.addWidget(lbl_inc)
         self.list_increase = QListWidget()
+        self.list_increase.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_increase.customContextMenuRequested.connect(self._on_context_menu)
         self.list_increase.itemDoubleClicked.connect(lambda: self._accept_from_list(self.list_increase))
         self.list_increase.currentItemChanged.connect(lambda c, p, l=self.list_increase: self._on_current_changed(c, l))
         col_inc_lay.addWidget(self.list_increase, 1)
@@ -106,6 +112,10 @@ class RoutesHistoryDialog(QDialog):
         self.btn_open.setEnabled(False)
         self.btn_open.clicked.connect(self._on_open_clicked)
         row.addWidget(self.btn_open)
+        btn_clear = QPushButton("Очистить историю")
+        btn_clear.setObjectName("btnDanger")
+        btn_clear.clicked.connect(self._on_clear_history)
+        row.addWidget(btn_clear)
         btn_cancel = QPushButton("Отмена")
         btn_cancel.setObjectName("btnSecondary")
         btn_cancel.clicked.connect(self.reject)
@@ -180,12 +190,11 @@ class RoutesHistoryDialog(QDialog):
             return
         hist, idx = res
         entry = hist[idx]
-        self._selected = deepcopy(entry)
-        routes = entry.get("filteredRoutes") or entry.get("routes") or []
+        self._selected = entry
         self.lbl_meta.setText(
             f"Тип: {_type_title(entry.get('fileType', 'main'))}. "
             f"Категория: {entry.get('routeCategory') or 'ШК'}. "
-            f"Маршрутов: {len(routes)}."
+            f"Маршрутов: {entry.get('count', 0)}."
         )
         self.btn_open.setEnabled(True)
 
@@ -193,14 +202,70 @@ class RoutesHistoryDialog(QDialog):
         if lst.currentItem() and self._get_current_entry():
             self._on_open_clicked()
 
+    def _on_context_menu(self, pos) -> None:
+        sender = self.sender()
+        if not isinstance(sender, QListWidget):
+            return
+        item = sender.itemAt(pos)
+        if item is None or item.isHidden():
+            return
+        sender.setCurrentItem(item)
+        self._last_active_list = sender
+        res = self._get_current_entry()
+        if res is None:
+            return
+        menu = QMenu(self)
+        act_delete = menu.addAction("Удалить")
+        act = menu.exec(sender.mapToGlobal(pos))
+        if act == act_delete:
+            self._on_delete_selected()
+
+    def _on_delete_selected(self) -> None:
+        res = self._get_current_entry()
+        if res is None:
+            return
+        hist, idx = res
+        entry = hist[idx]
+        filename = entry.get("filename")
+        if not filename:
+            return
+        ts = str(entry.get("timestamp") or "").replace("T", " ")[:16]
+        reply = QMessageBox.question(
+            self, "Удалить запись",
+            f"Удалить сохранение от {ts}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        if data_store.delete_routes_history_entry(filename):
+            self._load_history()
+
+    def _on_clear_history(self) -> None:
+        reply = QMessageBox.question(
+            self, "Очистить историю",
+            "Удалить всю историю маршрутов (основной и довоз)?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        data_store.clear_last_routes()
+        self._load_history()
+
     def _on_open_clicked(self) -> None:
         if not self._selected:
             return
-        self.accept()
+        filename = self._selected.get("filename")
+        if not filename:
+            return
+        self._loaded_entry = data_store.load_routes_history_entry(filename)
+        if self._loaded_entry:
+            self.accept()
 
     @property
     def selected_entry(self) -> dict | None:
-        return deepcopy(self._selected) if self._selected else None
+        return deepcopy(self._loaded_entry) if self._loaded_entry else None
 
 
 def pick_routes_history_entry(parent=None, file_type: str | None = None) -> dict | None:

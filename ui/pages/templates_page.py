@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QMessageBox, QLineEdit, QAbstractItemView, QMenu,
     QComboBox, QHeaderView, QInputDialog, QSpinBox,
     QDateEdit, QScrollArea, QGridLayout, QFrame,
+    QTextBrowser, QGroupBox, QCheckBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QDate, QPoint
 from PyQt6.QtGui import QColor, QDrag, QPixmap
@@ -52,6 +53,7 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
 
 FIELD_LABEL_MAP = {k: v for k, v in AVAILABLE_FIELDS}
 MIME_FIELD = "application/x-template-field"
+MIME_FIELD_FROM_CELL = "application/x-template-field-from-cell"  # перетаскивание из ячейки (move)
 
 
 # Подставляется при создании файла по типу загруженного маршрута (основной/довоз)
@@ -150,10 +152,12 @@ class TemplateGridTable(QTableWidget):
         super().__init__(rows, cols, parent)
         self.setAcceptDrops(True)
         self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
         self.setDropIndicatorShown(True)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ContiguousSelection)
-        self._drag_start_cell = None  # (row, col) при нажатии для перетаскивания из ячейки
+        self._drag_start_cell = None
+        self._drag_start_pos = None
         self.horizontalHeader().setMinimumSectionSize(90)
         self.verticalHeader().setMinimumSectionSize(44)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -171,6 +175,7 @@ class TemplateGridTable(QTableWidget):
             for c in range(cols):
                 it = QTableWidgetItem("")
                 it.setData(Qt.ItemDataRole.UserRole, None)
+                it.setFlags(it.flags() | Qt.ItemFlag.ItemIsDragEnabled)
                 self.setItem(r, c, it)
 
     def _get_item_at(self, row: int, col: int) -> QTableWidgetItem | None:
@@ -190,10 +195,51 @@ class TemplateGridTable(QTableWidget):
 
     def mousePressEvent(self, event):
         self._drag_start_cell = None
+        self._drag_start_pos = None
         idx = self.indexAt(event.position().toPoint() if hasattr(event, "position") else event.pos())
         if idx.isValid():
             self._drag_start_cell = (idx.row(), idx.column())
+            self._drag_start_pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """Инициирует перетаскивание из ячейки при движении мыши (надёжнее, чем полагаться на startDrag)."""
+        if self._drag_start_cell is not None and self._drag_start_pos is not None:
+            pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            if (pos - self._drag_start_pos).manhattanLength() > 8:
+                r, c = self._drag_start_cell
+                item = self._get_item_at(r, c)
+                if item is not None:
+                    field = item.data(Qt.ItemDataRole.UserRole)
+                    text = (item.text() or "").strip()
+                    label = text or (FIELD_LABEL_MAP.get(field, field) if field else "")
+                    if field or label:
+                        src_r, src_c = self._get_cell_of_item(item)
+                        md = QMimeData()
+                        payload = f"{field or ''}||{label}||{src_r},{src_c}"
+                        md.setData(MIME_FIELD_FROM_CELL, payload.encode("utf-8"))
+                        md.setData(MIME_FIELD, f"{field or ''}||{label}".encode("utf-8"))
+                        md.setText(f"{field or ''}||{label}")
+                        drag = QDrag(self)
+                        drag.setMimeData(md)
+                        rect = self.visualItemRect(item)
+                        pixmap = QPixmap(rect.size())
+                        pixmap.fill(Qt.GlobalColor.transparent)
+                        self.viewport().render(pixmap, QPoint(), rect)
+                        drag.setPixmap(pixmap)
+                        drag.setHotSpot(QPoint(pixmap.width() // 2, pixmap.height() // 2))
+                        drag.exec(Qt.DropAction.MoveAction)
+                        self._drag_start_cell = None
+                        self._drag_start_pos = None
+                        return
+        self._drag_start_cell = None
+        self._drag_start_pos = None
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_start_cell = None
+        self._drag_start_pos = None
+        super().mouseReleaseEvent(event)
 
     def startDrag(self, supportedActions):
         if self._drag_start_cell is not None:
@@ -201,11 +247,16 @@ class TemplateGridTable(QTableWidget):
             item = self._get_item_at(r, c)
             if item is not None:
                 field = item.data(Qt.ItemDataRole.UserRole)
-                if field:
-                    label = item.text() or FIELD_LABEL_MAP.get(field, field)
+                text = (item.text() or "").strip()
+                label = text or (FIELD_LABEL_MAP.get(field, field) if field else "")
+                if field or label:
+                    src_r, src_c = self._get_cell_of_item(item)  # верхняя левая для объединённых
                     md = QMimeData()
-                    md.setData(MIME_FIELD, f"{field}||{label}".encode("utf-8"))
-                    md.setText(f"{field}||{label}")
+                    # Перетаскивание из ячейки — move (очистить источник после drop). Формат: field||label||r,c
+                    payload = f"{field or ''}||{label}||{src_r},{src_c}"
+                    md.setData(MIME_FIELD_FROM_CELL, payload.encode("utf-8"))
+                    md.setData(MIME_FIELD, f"{field or ''}||{label}".encode("utf-8"))
+                    md.setText(f"{field or ''}||{label}")
                     drag = QDrag(self)
                     drag.setMimeData(md)
                     rect = self.visualItemRect(item)
@@ -214,29 +265,44 @@ class TemplateGridTable(QTableWidget):
                     self.viewport().render(pixmap, QPoint(), rect)
                     drag.setPixmap(pixmap)
                     drag.setHotSpot(QPoint(pixmap.width() // 2, pixmap.height() // 2))
-                    drag.exec(Qt.DropAction.CopyAction)
+                    drag.exec(Qt.DropAction.MoveAction)
                     self._drag_start_cell = None
                     return
-        # Не запускать стандартный drag (перемещение строк/ячеек)
         self._drag_start_cell = None
 
     def dragEnterEvent(self, event):
-        if event.mimeData().hasFormat(MIME_FIELD) or event.mimeData().hasText():
+        if (event.mimeData().hasFormat(MIME_FIELD) or event.mimeData().hasFormat(MIME_FIELD_FROM_CELL)
+                or event.mimeData().hasText()):
             event.acceptProposedAction()
 
     def dragMoveEvent(self, event):
-        if event.mimeData().hasFormat(MIME_FIELD) or event.mimeData().hasText():
+        if (event.mimeData().hasFormat(MIME_FIELD) or event.mimeData().hasFormat(MIME_FIELD_FROM_CELL)
+                or event.mimeData().hasText()):
             event.acceptProposedAction()
 
     def dropEvent(self, event):
-        text = event.mimeData().text()
+        md = event.mimeData()
+        source_cell = None  # (r, c) если перетаскивание из ячейки (move)
+        if md.hasFormat(MIME_FIELD_FROM_CELL):
+            raw = md.data(MIME_FIELD_FROM_CELL).data().decode("utf-8")
+            parts = raw.split("||", 2)  # ["field", "label", "r,c"]
+            if len(parts) >= 3:
+                try:
+                    rc_str = parts[2]
+                    src_r, src_c = map(int, rc_str.split(",", 1))
+                    source_cell = (src_r, src_c)
+                except (ValueError, IndexError):
+                    pass
+            text = parts[0] + "||" + parts[1] if len(parts) >= 2 else raw
+        else:
+            text = md.text()
         if "||" in text:
             field, label = text.split("||", 1)
         else:
             field, label = "", text
 
         # Целевые ячейки: либо выделение (все выбранные), либо одна ячейка под курсором
-        targets = set()  # set of (row, col) — верхние левые ячеек (без дублей по span)
+        targets = set()
         sel = self.selectedRanges()
         pos = event.position().toPoint()
         cell = self.indexAt(pos)
@@ -270,6 +336,20 @@ class TemplateGridTable(QTableWidget):
                 item.setText(label)
                 item.setData(Qt.ItemDataRole.UserRole, field if field else None)
                 item.setToolTip(FIELD_DESCRIPTIONS.get(field, "") if field else "")
+
+        # Перемещение из ячейки: очистить источник, если цель отличается
+        if source_cell is not None:
+            src_r, src_c = source_cell
+            src_in_targets = any(
+                (src_r, src_c) == self._get_cell_of_item(self._get_item_at(tr, tc))
+                for (tr, tc) in targets
+            )
+            if not src_in_targets:
+                src_item = self.item(src_r, src_c)
+                if src_item is not None:
+                    src_item.setText("")
+                    src_item.setData(Qt.ItemDataRole.UserRole, None)
+                    src_item.setToolTip("")
         event.acceptProposedAction()
 
     def _get_visible_item(self, row: int, col: int) -> QTableWidgetItem | None:
@@ -371,19 +451,35 @@ class TemplateEditorDialog(QDialog):
                 self.combo_format.setCurrentIndex(i)
                 break
         row2.addWidget(self.combo_format)
-        row2.addSpacing(24)
-        row2.addWidget(QLabel("Привязать к отделу:"))
-        self.combo_dept = QComboBox()
-        for key, name in data_store.get_department_choices():
-            self.combo_dept.addItem(name, key)
-        dept_key = self._tmpl.get("deptKey") or ""
-        idx = self.combo_dept.findData(dept_key)
-        if idx >= 0:
-            self.combo_dept.setCurrentIndex(idx)
-        self.combo_dept.currentIndexChanged.connect(self._apply_title_row)
-        row2.addWidget(self.combo_dept)
         row2.addStretch()
         root.addLayout(row2)
+
+        # Привязка к отделам/подотделам (множественный выбор)
+        dept_row = QHBoxLayout()
+        dept_row.addWidget(QLabel("Привязать к отделам:"))
+        dept_hint = QLabel("(пусто = шаблон по умолчанию)")
+        dept_hint.setObjectName("hintLabel")
+        dept_row.addWidget(dept_hint)
+        dept_row.addStretch()
+        root.addLayout(dept_row)
+        dept_scroll = QScrollArea()
+        dept_scroll.setWidgetResizable(True)
+        dept_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        dept_scroll.setMaximumHeight(120)
+        dept_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        dept_container = QWidget()
+        self.dept_checkboxes_lay = QVBoxLayout(dept_container)
+        self.dept_checkboxes_lay.setContentsMargins(0, 4, 0, 4)
+        self._dept_checkboxes: list[tuple[str, QCheckBox]] = []
+        for key, name in data_store.get_department_choices():
+            if not key:
+                continue
+            cb = QCheckBox(name)
+            cb.stateChanged.connect(self._apply_title_row)
+            self._dept_checkboxes.append((key, cb))
+            self.dept_checkboxes_lay.addWidget(cb)
+        dept_scroll.setWidget(dept_container)
+        root.addWidget(dept_scroll)
 
         # Таблица и поля — выше, чтобы удобнее работать
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -462,11 +558,22 @@ class TemplateEditorDialog(QDialog):
         if t:
             self._tmpl["name"] = t
 
+    def _get_selected_dept_keys(self) -> list[str]:
+        """Возвращает список выбранных ключей отделов."""
+        return [key for key, cb in self._dept_checkboxes if cb.isChecked()]
+
+    def _get_first_dept_display_name(self) -> str:
+        """Имя первого выбранного отдела для заголовка."""
+        keys = self._get_selected_dept_keys()
+        if not keys:
+            return ""
+        return data_store.get_department_display_name(keys[0])
+
     def _apply_title_row(self):
-        """Записывает в ячейку (0,0) заголовок по настройкам авто-строки. Тип (основной/увеличение) подставится при создании файла."""
+        """Записывает в ячейку (0,0) заголовок по настройкам авто-строки."""
         if not self.chk_title_auto.isChecked():
             return
-        dept_name = self.combo_dept.currentText().strip() or ""
+        dept_name = self._get_first_dept_display_name()
         date_str = self.date_title.date().toString("dd.MM.yyyy")
         title = _build_title_string(
             self.chk_title_dept.isChecked(), dept_name, date_str, None
@@ -477,6 +584,13 @@ class TemplateEditorDialog(QDialog):
                 it.setText(title)
 
     def _load_grid(self):
+        # Загрузка выбранных отделов
+        dept_keys = set(self._tmpl.get("deptKeys") or ([self._tmpl.get("deptKey")] if self._tmpl.get("deptKey") else []))
+        for key, cb in self._dept_checkboxes:
+            cb.blockSignals(True)
+            cb.setChecked(key in dept_keys)
+            cb.blockSignals(False)
+
         grid = self._tmpl.get("grid")
         merges = self._tmpl.get("merges") or []
         if not grid or len(grid) < self._grid_rows:
@@ -487,11 +601,9 @@ class TemplateEditorDialog(QDialog):
         cols = min(len(grid[0]) if grid else 0, self.table.columnCount())
         title_row = self._tmpl.get("titleRow") or {}
         if title_row.get("auto", True) and rows > 0:
-            dept_name = ""
-            for key, name in data_store.get_department_choices():
-                if key == (self._tmpl.get("deptKey") or ""):
-                    dept_name = name.strip()
-                    break
+            dept_name = self._get_first_dept_display_name() or ""
+            if not dept_name and self._tmpl.get("deptKey"):
+                dept_name = data_store.get_department_display_name(self._tmpl["deptKey"])
             title = _build_title_string(
                 title_row.get("includeDept", True),
                 dept_name,
@@ -552,6 +664,7 @@ class TemplateEditorDialog(QDialog):
                         if (rr, cc) != (r, c) and self.table.item(rr, cc) is None:
                             it = QTableWidgetItem("")
                             it.setData(Qt.ItemDataRole.UserRole, None)
+                            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsDragEnabled)
                             self.table.setItem(rr, cc, it)
         elif action == act_remove_field:
             self._remove_field_from_selection()
@@ -607,6 +720,7 @@ class TemplateEditorDialog(QDialog):
                 else:
                     it = QTableWidgetItem("")
                     it.setData(Qt.ItemDataRole.UserRole, None)
+                    it.setFlags(it.flags() | Qt.ItemFlag.ItemIsDragEnabled)
                     self.table.setItem(r, c, it)
         self._apply_title_row()
 
@@ -617,7 +731,7 @@ class TemplateEditorDialog(QDialog):
             return
         self._tmpl["name"] = name
         self._tmpl["format"] = self.combo_format.currentData() or ""
-        self._tmpl["deptKey"] = self.combo_dept.currentData() or None
+        dept_keys = self._get_selected_dept_keys()
         grid, merges = self.table.get_grid_and_merges()
         title_row = {
             "auto": self.chk_title_auto.isChecked(),
@@ -627,7 +741,7 @@ class TemplateEditorDialog(QDialog):
         data_store.save_template(
             self._tmpl["id"], name,
             [],
-            dept_key=self._tmpl["deptKey"],
+            dept_keys=dept_keys,
             fmt=self._tmpl["format"],
             grid=grid,
             merges=merges,
@@ -640,39 +754,74 @@ class TemplateEditorDialog(QDialog):
 
 # ─────────────────────────── Главный диалог шаблонов ──────────────────────
 
-def _template_tooltip_html(tmpl: dict) -> str:
-    """Генерирует HTML таблицы для тултипа: заголовки обведены, увеличенные ячейки."""
+def _template_preview_html(tmpl: dict) -> str:
+    """Генерирует HTML превью шаблона с учётом объединённых ячеек."""
     grid = tmpl.get("grid")
     merges = tmpl.get("merges") or []
     rows_tmpl = tmpl.get("gridRows", data_store.GRID_ROWS)
     cols_tmpl = tmpl.get("gridCols", data_store.GRID_COLS)
     if not grid or len(grid) < rows_tmpl:
         grid, _ = _grid_from_columns(tmpl.get("columns", []), rows_tmpl, cols_tmpl)
-    cell_style = "border:1px solid #888; padding:6px 10px; font-size:12px;"
-    header_style = "border:2px solid #333; padding:6px 10px; font-size:12px; font-weight:bold; background:#eee;"
+
+    # Карта: (r,c) -> (rowspan, colspan) для верхней левой ячейки объединения
+    merge_map: dict[tuple[int, int], tuple[int, int]] = {}
+    for (r0, c0, rs, cs) in merges:
+        if rs > 0 and cs > 0:
+            merge_map[(r0, c0)] = (rs, cs)
+
+    # Множество ячеек, входящих в объединение (не верхняя левая)
+    covered: set[tuple[int, int]] = set()
+    for (r0, c0), (rs, cs) in merge_map.items():
+        for rr in range(r0, min(r0 + rs, rows_tmpl)):
+            for cc in range(c0, min(c0 + cs, cols_tmpl)):
+                if (rr, cc) != (r0, c0):
+                    covered.add((rr, cc))
+
+    cell_style = "border:1px solid #888; padding:8px 12px; font-size:12px;"
+    header_style = "border:2px solid #333; padding:8px 12px; font-size:12px; font-weight:bold; background:#f0f0f0;"
     rows_html = []
     for r in range(min(len(grid), rows_tmpl)):
         cells = []
         for c in range(min(len(grid[r]) if grid[r] else 0, cols_tmpl)):
+            if (r, c) in covered:
+                continue
             cell = grid[r][c]
             text = (cell.get("text") or "").strip() or "—"
             tag = "th" if r == 0 else "td"
             style = header_style if r == 0 else cell_style
-            cells.append(f"<{tag} style='{style}'>{text}</{tag}>")
+            rowspan = ""
+            colspan = ""
+            if (r, c) in merge_map:
+                rs, cs = merge_map[(r, c)]
+                if rs > 1:
+                    rowspan = f" rowspan='{rs}'"
+                if cs > 1:
+                    colspan = f" colspan='{cs}'"
+            cells.append(f"<{tag} style='{style}'{rowspan}{colspan}>{text}</{tag}>")
         rows_html.append("<tr>" + "".join(cells) + "</tr>")
     table = "<table style='border-collapse:collapse;'>" + "".join(rows_html) + "</table>"
-    dept = tmpl.get("deptKey") or "Все отделы"
-    return f"<html><body><p style='margin:0 0 6px 0;'><b>{tmpl.get('name', '')}</b> · {dept}</p>{table}</body></html>"
+    dept_keys = tmpl.get("deptKeys") or ([tmpl.get("deptKey")] if tmpl.get("deptKey") else [])
+    if dept_keys:
+        dept_names = [data_store.get_department_display_name(k) for k in dept_keys]
+        dept = ", ".join(dept_names)
+    else:
+        dept = "Все отделы"
+    return f"<html><body style='font-family:Segoe UI,sans-serif;'><p style='margin:0 0 10px 0; font-size:13px;'><b>{tmpl.get('name', '')}</b> · {dept}</p>{table}</body></html>"
+
+
+def _template_tooltip_html(tmpl: dict) -> str:
+    """Генерирует HTML таблицы для тултипа (упрощённый вариант)."""
+    return _template_preview_html(tmpl)
 
 
 class TemplatesDialog(QDialog):
-    """Модальный диалог управления шаблонами. При наведении на имя — превью таблицы."""
+    """Модальный диалог управления шаблонами. Список слева, превью справа (Master-Detail)."""
 
     def __init__(self, app_state: dict, parent=None):
         super().__init__(parent)
         self.app_state = app_state
         self.setWindowTitle("Шаблоны")
-        self.setMinimumSize(640, 440)
+        self.setMinimumSize(900, 520)
         self.setModal(True)
         self._build_ui()
         self._refresh_list()
@@ -689,29 +838,56 @@ class TemplatesDialog(QDialog):
         title_row.addWidget(lbl_title)
         title_row.addWidget(hint_icon_button(
             self,
-            "Шаблон — таблица 5×6 (заголовки и данные). Двойной клик — редактор. Привязка к отделу — в редакторе.",
+            "Шаблон — таблица 5×6 (заголовки и данные). Выберите шаблон — превью справа. Двойной клик — редактор.",
             "Инструкция — Шаблоны\n\n"
-            "1. Список шаблонов: двойной клик — открыть редактор; кнопки Создать, Редактировать, Удалить.\n"
-            "2. В редакторе: таблица 5×6 (3 строки заголовков, 2 строки данных). Перетащите поля в ячейки или введите текст.\n"
-            "3. ПКМ по выделенным ячейкам — объединить; ПКМ по ячейке — разъединить.\n"
-            "4. Привязка к отделу — выберите отдел в редакторе.\n"
-            "5. При наведении на название шаблона отображается превью таблицы.",
+            "1. Список слева: выберите шаблон — превью отображается справа.\n"
+            "2. Двойной клик — открыть редактор; кнопки Создать, Редактировать, Удалить.\n"
+            "3. В редакторе: перетащите поля в ячейки, ПКМ — объединить/разъединить.\n"
+            "4. Привязка к отделу — в редакторе.",
             "Инструкция",
         ))
         title_row.addStretch()
         root.addLayout(title_row)
 
         hint = QLabel(
-            "Двойной клик по шаблону — открыть редактор. Наведите на название — превью таблицы."
+            "Выберите шаблон — превью отображается справа. Двойной клик — открыть редактор."
         )
         hint.setObjectName("hintLabel")
         hint.setWordWrap(True)
         root.addWidget(hint)
 
+        # Master-Detail: список слева, превью справа
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        left_panel = QWidget()
+        left_panel.setMinimumWidth(220)
+        left_panel.setMaximumWidth(320)
+        left_lay = QVBoxLayout(left_panel)
+        left_lay.setContentsMargins(0, 0, 0, 0)
+        left_lay.addWidget(QLabel("Шаблоны"))
         self.list_templates = QListWidget()
         self.list_templates.setAlternatingRowColors(True)
         self.list_templates.itemDoubleClicked.connect(self._on_edit)
-        root.addWidget(self.list_templates)
+        self.list_templates.itemSelectionChanged.connect(self._on_selection_changed)
+        left_lay.addWidget(self.list_templates)
+        splitter.addWidget(left_panel)
+
+        right_panel = QGroupBox("Превью шаблона")
+        right_lay = QVBoxLayout(right_panel)
+        right_lay.setContentsMargins(12, 12, 12, 12)
+        self.preview_browser = QTextBrowser()
+        self.preview_browser.setMinimumHeight(280)
+        self.preview_browser.setOpenExternalLinks(False)
+        self.preview_browser.setHtml(
+            "<html><body style='font-family:Segoe UI,sans-serif; color:#666;'>"
+            "<p style='margin:20px;'>Выберите шаблон в списке слева для отображения превью.</p>"
+            "</body></html>"
+        )
+        right_lay.addWidget(self.preview_browser)
+        splitter.addWidget(right_panel)
+        splitter.setSizes([260, 520])
+
+        root.addWidget(splitter)
 
         btn_row = QHBoxLayout()
         btn_new = QPushButton("Создать шаблон")
@@ -744,15 +920,38 @@ class TemplatesDialog(QDialog):
         main_lay.addWidget(scroll)
 
     def _refresh_list(self):
+        self.list_templates.blockSignals(True)
         self.list_templates.clear()
         templates = data_store.get_ref("templates") or []
         for tmpl in templates:
-            dept = tmpl.get("deptKey") or "—"
-            item = QListWidgetItem(f"{tmpl['name']}  ·  Отдел: {dept or 'все'}")
+            dept_keys = tmpl.get("deptKeys") or ([tmpl.get("deptKey")] if tmpl.get("deptKey") else [])
+            if dept_keys:
+                dept_str = ", ".join(data_store.get_department_display_name(k) for k in dept_keys[:3])
+                if len(dept_keys) > 3:
+                    dept_str += f" +{len(dept_keys) - 3}"
+            else:
+                dept_str = "все"
+            item = QListWidgetItem(f"{tmpl['name']}  ·  Отделы: {dept_str}")
             item.setData(Qt.ItemDataRole.UserRole, tmpl["id"])
             item.setData(Qt.ItemDataRole.UserRole + 1, tmpl)
             item.setToolTip(_template_tooltip_html(tmpl))
             self.list_templates.addItem(item)
+        self.list_templates.blockSignals(False)
+        self._on_selection_changed()
+
+    def _on_selection_changed(self):
+        """Обновляет панель превью при смене выбранного шаблона."""
+        items = self.list_templates.selectedItems()
+        if not items:
+            self.preview_browser.setHtml(
+                "<html><body style='font-family:Segoe UI,sans-serif; color:#666;'>"
+                "<p style='margin:20px;'>Выберите шаблон в списке слева для отображения превью.</p>"
+                "</body></html>"
+            )
+            return
+        tmpl = items[0].data(Qt.ItemDataRole.UserRole + 1)
+        if tmpl:
+            self.preview_browser.setHtml(_template_preview_html(tmpl))
 
     def _get_selected_id(self) -> str | None:
         items = self.list_templates.selectedItems()
