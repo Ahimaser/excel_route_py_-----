@@ -3,15 +3,19 @@ ui/widgets.py — Общие переиспользуемые виджеты.
 
 CommitLineEdit — поле ввода с сохранением по Enter/потере фокуса.
 HintIconButton — кнопка «!»: при наведении — краткая подсказка, по клику — подробная инструкция.
-make_combo_searchable — при нажатии список отображается целиком; при вводе символов остаются только пункты с совпадением.
 message_plain — QMessageBox с PlainText, чтобы переносы строк (\\n) отображались.
 ToggleSwitch — iOS/Apple-style анимированный переключатель, замена QCheckBox.
+ReplacementDiagramWidget — визуальная схема замены продукта (A → B или A → B + C).
 """
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QLineEdit, QPushButton, QMessageBox, QComboBox, QListWidget, QListWidgetItem, QFrame, QVBoxLayout, QHBoxLayout, QAbstractButton, QSizePolicy
-from PyQt6.QtCore import pyqtSignal, pyqtProperty, QTimer, Qt, QSortFilterProxyModel, QModelIndex, QEvent, QObject, QPropertyAnimation, QEasingCurve, QSize
-from PyQt6.QtGui import QPainter, QColor, QPen
+from PyQt6.QtWidgets import (
+    QLineEdit, QPushButton, QMessageBox, QListWidget, QListWidgetItem,
+    QFrame, QVBoxLayout, QHBoxLayout, QAbstractButton, QSizePolicy,
+    QWidget, QLabel, QComboBox, QSlider,
+)
+from PyQt6.QtCore import pyqtSignal, pyqtProperty, QTimer, Qt, QEvent, QObject, QPropertyAnimation, QEasingCurve, QSize, QPoint
+from PyQt6.QtGui import QPainter, QColor, QPen, QPolygon
 
 
 def message_plain(parent, title: str, text: str, icon=QMessageBox.Icon.Information, buttons=QMessageBox.StandardButton.Ok):
@@ -23,97 +27,6 @@ def message_plain(parent, title: str, text: str, icon=QMessageBox.Icon.Informati
     mb.setIcon(icon)
     mb.setStandardButtons(buttons)
     return mb.exec()
-
-
-class _ComboFilterProxy(QSortFilterProxyModel):
-    """Фильтр по вхождению подстроки в текст пункта (без учёта регистра)."""
-
-    def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
-        rx = self.filterRegularExpression()
-        if not rx.pattern():
-            return True
-        src = self.sourceModel()
-        if not src:
-            return True
-        idx = src.index(source_row, 0, source_parent)
-        text = (src.data(idx, Qt.ItemDataRole.DisplayRole) or "")
-        if not isinstance(text, str):
-            text = str(text)
-        return rx.match(text).hasMatch()
-
-
-def make_combo_searchable(combo: QComboBox) -> None:
-    """
-    Список при нажатии отображается целиком; при вводе символов в поле
-    в списке остаются только пункты, в которых есть введённая подстрока.
-    """
-    combo.setEditable(True)
-    combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-    source = combo.model()
-    old_index = combo.currentIndex()
-    row_count = source.rowCount()
-    proxy = _ComboFilterProxy(combo)
-    proxy.setSourceModel(source)
-    proxy.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-    combo.setModel(proxy)
-    if 0 <= old_index < row_count:
-        combo.setCurrentIndex(old_index)
-
-    def _apply_filter(text: str) -> None:
-        t = (text or "").strip()
-        if not t:
-            proxy.setFilterRegularExpression("")
-        else:
-            import re
-            from PyQt6.QtCore import QRegularExpression
-            pattern = ".*" + re.escape(t) + ".*"
-            proxy.setFilterRegularExpression(
-                QRegularExpression(pattern, QRegularExpression.PatternOption.CaseInsensitiveOption)
-            )
-
-    le = combo.lineEdit()
-    if le is not None:
-        le.setPlaceholderText("Поиск...")
-
-    class _FocusFilter(QObject):
-        """При фокусе в поле сбрасываем фильтр, чтобы при открытии списка он отображался целиком."""
-
-        def __init__(self, proxy_model: QSortFilterProxyModel, line_edit: QLineEdit, parent=None):
-            super().__init__(parent)
-            self._proxy = proxy_model
-            self._line_edit = line_edit
-
-        def eventFilter(self, obj, ev):
-            if ev.type() == QEvent.Type.FocusIn:
-                # При первом фокусе очищаем текст, чтобы поле было пустым для поиска
-                self._line_edit.clear()
-                self._proxy.setFilterRegularExpression("")
-            return False
-
-    if le is not None:
-        le.installEventFilter(_FocusFilter(proxy, le, combo))
-        le.textChanged.connect(_apply_filter)
-
-    # Минимальный размер списка, чтобы пункты были видны и кликабельны (в т.ч. внутри QScrollArea)
-    view = combo.view()
-    view.setMinimumHeight(min(300, 80 + max(0, row_count) * 24))
-    view.setMinimumWidth(max(220, combo.minimumSizeHint().width()))
-
-    # После клика по комбобоксу через 50 ms popup уже открыт — поднимаем его поверх (обрезка в QScrollArea)
-    def _raise_popup():
-        popup = view.window()
-        if popup and popup is not combo and popup.isVisible():
-            flags = popup.windowFlags()
-            if not (flags & Qt.WindowType.WindowStaysOnTopHint):
-                popup.setWindowFlags(flags | Qt.WindowType.WindowStaysOnTopHint)
-
-    class _ComboPopupRaiser(QObject):
-        def eventFilter(self, obj, ev):
-            # После клика даём Qt открыть popup и только затем поднимаем его поверх
-            if obj is combo and ev.type() == QEvent.Type.MouseButtonPress:
-                QTimer.singleShot(50, _raise_popup)
-            return False
-    combo.installEventFilter(_ComboPopupRaiser(combo))
 
 
 class SearchableList(QFrame):
@@ -147,7 +60,7 @@ class SearchableList(QFrame):
         self.btn_toggle = QPushButton("˄")
         self.btn_toggle.setObjectName("listToggleButton")
         self.btn_toggle.setFixedWidth(28)
-        self.btn_toggle.setToolTip("Скрыть список")
+        self.btn_toggle.setToolTip("Свернуть или развернуть список")
         self.btn_toggle.clicked.connect(self._on_hide_clicked)
         top.addWidget(self.btn_toggle)
 
@@ -346,3 +259,150 @@ class CommitLineEdit(QLineEdit):
         except RuntimeError:
             # C++ объект уже удалён — игнорируем
             pass
+
+
+# ─────────────────────────── ReplacementDiagramWidget ───────────────────────
+
+def _make_replacement_product_frame(min_width: int = 140) -> tuple[QFrame, QVBoxLayout]:
+    """Создаёт стилизованный фрейм для продукта в схеме замены."""
+    f = QFrame()
+    f.setObjectName("replacementProductCard")
+    f.setMinimumWidth(min_width)
+    f.setMinimumHeight(56)
+    f.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
+    lay = QVBoxLayout(f)
+    lay.setContentsMargins(8, 6, 8, 6)
+    lay.setSpacing(2)
+    return f, lay
+
+
+class _ArrowDiagramWidget(QWidget):
+    """Виджет, рисующий стрелки: одна или две (ветвление)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._single = True
+        self.setMinimumWidth(80)
+        self.setMinimumHeight(100)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+
+    def set_single(self, single: bool) -> None:
+        self._single = single
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor(100, 100, 100), 2)
+        p.setPen(pen)
+        p.setBrush(QColor(100, 100, 100))
+
+        w, h = self.width(), self.height()
+        left_x, right_x = 8, w - 8
+
+        if self._single:
+            mid_y = h // 2
+            p.drawLine(left_x, mid_y, right_x - 12, mid_y)
+            pts = QPolygon([QPoint(right_x - 12, mid_y), QPoint(right_x - 22, mid_y - 6), QPoint(right_x - 22, mid_y + 6)])
+            p.drawPolygon(pts)
+        else:
+            top_y, bot_y = h // 3, 2 * h // 3
+            branch_x = left_x + (right_x - left_x) // 3
+            p.drawLine(left_x, h // 2, branch_x, h // 2)
+            p.drawLine(branch_x, h // 2, branch_x, top_y)
+            p.drawLine(branch_x, top_y, right_x - 12, top_y)
+            pts = QPolygon([QPoint(right_x - 12, top_y), QPoint(right_x - 22, top_y - 6), QPoint(right_x - 22, top_y + 6)])
+            p.drawPolygon(pts)
+            p.drawLine(branch_x, h // 2, branch_x, bot_y)
+            p.drawLine(branch_x, bot_y, right_x - 12, bot_y)
+            pts = QPolygon([QPoint(right_x - 12, bot_y), QPoint(right_x - 22, bot_y - 6), QPoint(right_x - 22, bot_y + 6)])
+            p.drawPolygon(pts)
+        p.end()
+
+
+class ReplacementDiagramWidget(QWidget):
+    """Визуальная схема замены: [A] → [B] или [A] → [B] + [C] с ветвлением."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        main_lay = QVBoxLayout(self)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.setSpacing(8)
+
+        row = QHBoxLayout()
+        row.setSpacing(0)
+
+        self.frame_from, from_lay = _make_replacement_product_frame(min_width=150)
+        self.combo_from = QComboBox()
+        self.combo_from.setMinimumWidth(130)
+        from_lay.addWidget(self.combo_from)
+        self.lbl_from_qty = QLabel("")
+        self.lbl_from_qty.setObjectName("replacementHint")
+        from_lay.addWidget(self.lbl_from_qty)
+        row.addWidget(self.frame_from)
+
+        self.arrow_widget = _ArrowDiagramWidget(self)
+        row.addWidget(self.arrow_widget, 0, Qt.AlignmentFlag.AlignCenter)
+
+        self.right_container = QWidget()
+        self.right_lay = QVBoxLayout(self.right_container)
+        self.right_lay.setContentsMargins(0, 0, 0, 0)
+        self.right_lay.setSpacing(12)
+
+        self.frame_to1, to1_lay = _make_replacement_product_frame(min_width=140)
+        self.combo_to1 = QComboBox()
+        self.combo_to1.setMinimumWidth(120)
+        to1_lay.addWidget(self.combo_to1)
+        self.lbl_to1_pct = QLabel("")
+        self.lbl_to1_pct.setObjectName("replacementHint")
+        to1_lay.addWidget(self.lbl_to1_pct)
+        self.right_lay.addWidget(self.frame_to1)
+
+        self.frame_to2, to2_lay = _make_replacement_product_frame(min_width=140)
+        self.combo_to2 = QComboBox()
+        self.combo_to2.setMinimumWidth(120)
+        to2_lay.addWidget(self.combo_to2)
+        self.lbl_to2_pct = QLabel("")
+        self.lbl_to2_pct.setObjectName("replacementHint")
+        to2_lay.addWidget(self.lbl_to2_pct)
+        self.right_lay.addWidget(self.frame_to2)
+        self.frame_to2.setVisible(False)
+
+        row.addWidget(self.right_container)
+        main_lay.addLayout(row)
+
+        self.btn_add_second = QPushButton("+ Добавить второй продукт")
+        self.btn_add_second.setObjectName("btnSecondary")
+        self.btn_add_second.setCheckable(True)
+        self.btn_add_second.setChecked(False)
+
+        self.slider_row = QWidget()
+        slider_lay = QHBoxLayout(self.slider_row)
+        slider_lay.setContentsMargins(0, 4, 0, 0)
+        slider_lay.addWidget(QLabel("Распределение:"))
+        self.slider_ratio = QSlider(Qt.Orientation.Horizontal)
+        self.slider_ratio.setRange(0, 100)
+        self.slider_ratio.setValue(50)
+        self.slider_ratio.setMinimumWidth(120)
+        slider_lay.addWidget(self.slider_ratio)
+        self.lbl_ratio = QLabel("50% / 50%")
+        self.lbl_ratio.setMinimumWidth(70)
+        slider_lay.addWidget(self.lbl_ratio)
+        slider_lay.addStretch()
+        self.slider_row.setVisible(False)
+
+        self.slider_ratio.valueChanged.connect(lambda v: self.lbl_ratio.setText(f"{v}% / {100 - v}%"))
+
+        def _on_add_toggled(checked: bool) -> None:
+            self.frame_to2.setVisible(checked)
+            self.slider_row.setVisible(checked)
+            self.arrow_widget.set_single(not checked)
+            self.btn_add_second.setText("− Убрать второй продукт" if checked else "+ Добавить второй продукт")
+
+        self.btn_add_second.toggled.connect(_on_add_toggled)
+        main_lay.addWidget(self.btn_add_second)
+        main_lay.addWidget(self.slider_row)

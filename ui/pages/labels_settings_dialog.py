@@ -1,40 +1,43 @@
 """
-labels_settings_dialog.py — Окно настройки этикеток: отделы/подотделы и шаблоны по продуктам.
+labels_settings_dialog.py — Окно настройки этикеток: отделы/подотделы и условия.
 
-Логика работы с этикетками:
-- Шаблоны этикеток задаются только здесь: для выбранного отдела/подотдела в таблице справа
-  у каждого продукта можно указать файл шаблона XLS (или снять шаблон).
-- Для каких отделов создавать этикетки — решает пользователь: в дереве слева у каждого
-  отдела и подотдела есть галочка «Создавать этикетки» (labelsEnabled). Если галочка снята,
-  продукты этого отдела/подотдела не попадают в генерацию этикеток, даже при наличии шаблона.
-- При создании этикеток (страница «Этикетки») в файлы попадают только продукты, у которых:
-  1) задан шаблон (labelTemplatePath), 2) отдел/подотдел продукта имеет labelsEnabled=True.
+Логика: галочка «Создавать этикетки» (labelsEnabled) у отдела/подотдела — включать его при создании этикеток.
+Этикетки создаются без шаблонов (3 столбца: № маршрута, Дом, Количество).
 """
 from __future__ import annotations
 
-import os
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTreeWidget, QTreeWidgetItem, QWidget, QTableWidget, QTableWidgetItem,
-    QHeaderView, QAbstractItemView, QFileDialog, QFrame,
-    QSplitter, QFormLayout, QComboBox, QDoubleSpinBox, QLineEdit, QGroupBox,
-    QScrollArea, QStyle,
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QWidget,
+    QFrame,
+    QFormLayout,
+    QComboBox,
+    QDoubleSpinBox,
+    QLineEdit,
+    QGroupBox,
+    QScrollArea,
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QShortcut, QKeySequence
 
 from core import data_store
 from ui.widgets import hint_icon_button, ToggleSwitch
-from ui.pages.label_template_editor import open_label_template_editor
 
 
 class LabelsSettingsDialog(QDialog):
-    """Диалог: печатать этикетки по отделам и шаблоны XLS по продуктам."""
+    """Диалог: галочки по отделам и условия этикеток (чищенка, сыпучка)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Настройки этикеток")
-        self.setMinimumSize(900, 620)
-        self.resize(1100, 720)
+        self.setMinimumSize(480, 420)
+        self.resize(560, 500)
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setSizeGripEnabled(True)
         self._updating = False
@@ -42,6 +45,9 @@ class LabelsSettingsDialog(QDialog):
         self._refresh_tree()
         self.tree.currentItemChanged.connect(self._on_selection_changed)
         self._current_node_obj = None
+
+    def _save_and_close(self) -> None:
+        self.accept()
 
     def _build_ui(self):
         content = QWidget()
@@ -52,72 +58,48 @@ class LabelsSettingsDialog(QDialog):
         title_row.addWidget(QLabel("Настройки этикеток"))
         title_row.addWidget(hint_icon_button(
             self,
-            "Слева — галочка по отделам; справа — шаблон XLS для каждого продукта.",
+            "Галочка «Создавать этикетки» включает отдел. «Условия этикеток» — режимы чищенка и сыпучка.",
             "Инструкция — Настройки этикеток\n\n"
-            "1. Слева: дерево отделов и подотделов. Галочка «Создавать этикетки» — включать этот отдел при создании этикеток.\n"
-            "2. Справа: выберите отдел или подотдел слева — отобразится таблица продуктов.\n"
-            "3. Для каждого продукта укажите шаблон XLS: кнопка «…» — выбрать файл, «✕» — снять шаблон.\n"
-            "4. Этикетки создаются только для продуктов с заданным шаблоном и с включённой галочкой у отдела.",
+            "1. Галочка «Создавать этикетки» у отдела/подотдела — включать его при создании этикеток.\n"
+            "2. «Условия этикеток для отдела» — настройка режимов: чищенка (деление по весу на этикетку), сыпучка (два файла по порогу).\n"
+            "3. Этикетки создаются в формате 3 столбца: № маршрута, Дом/строение, Количество.",
             "Инструкция",
         ))
         title_row.addStretch()
         lay.addLayout(title_row)
 
-        self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        left = QWidget()
-        left_lay = QVBoxLayout(left)
-        left_lay.setContentsMargins(0, 0, 0, 0)
-        left_lay.addWidget(QLabel("Отделы / подотделы"))
+        card = QFrame()
+        card.setObjectName("card")
+        card_lay = QVBoxLayout(card)
+        card_lay.addWidget(QLabel("Отделы / подотделы"))
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Название", "Создавать этикетки"])
         self.tree.setColumnWidth(0, 280)
         self.tree.setColumnWidth(1, 160)
-        self.tree.setMinimumHeight(320)
-        left_lay.addWidget(self.tree)
+        self.tree.setMinimumHeight(280)
+        card_lay.addWidget(self.tree)
         self.btn_label_rules = QPushButton("Условия этикеток для отдела…")
         self.btn_label_rules.setObjectName("btnSecondary")
         self.btn_label_rules.setMinimumWidth(220)
         self.btn_label_rules.setEnabled(False)
         self.btn_label_rules.clicked.connect(self._on_label_rules)
-        left_lay.addWidget(self.btn_label_rules)
-        self.lbl_no_depts = QLabel("Нет отделов. Добавьте отделы в меню «Справочники» → «Отделы и продукты».")
+        card_lay.addWidget(self.btn_label_rules)
+        self.lbl_no_depts = QLabel("Нет отделов. Добавьте отделы в меню «Файл» → «Справочники» → «Отделы и продукты».")
         self.lbl_no_depts.setObjectName("hintLabel")
         self.lbl_no_depts.setWordWrap(True)
-        left_lay.addWidget(self.lbl_no_depts)
-        self.splitter.addWidget(left)
+        card_lay.addWidget(self.lbl_no_depts)
+        lay.addWidget(card)
 
-        right = QFrame()
-        right.setObjectName("card")
-        right_lay = QVBoxLayout(right)
-        self.lbl_right_title = QLabel("Выберите отдел или подотдел слева")
-        right_lay.addWidget(self.lbl_right_title)
-        self.lbl_no_prods = QLabel("В выбранном отделе/подотделе нет продуктов.")
-        self.lbl_no_prods.setObjectName("hintLabel")
-        self.lbl_no_prods.setVisible(False)
-        right_lay.addWidget(self.lbl_no_prods)
-        self.products_table = QTableWidget()
-        self.products_table.setColumnCount(3)
-        self.products_table.setHorizontalHeaderLabels(["Продукт", "Шаблон этикетки (XLS)", ""])
-        self.products_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.products_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.products_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.products_table.setColumnWidth(2, 130)
-        self.products_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.products_table.verticalHeader().setVisible(False)
-        self.products_table.setVisible(False)
-        self.products_table.setMinimumHeight(320)
-        right_lay.addWidget(self.products_table)
-        self.splitter.addWidget(right)
-        self.splitter.setSizes([420, 620])
-        self.splitter.setStretchFactor(0, 1)
-        self.splitter.setStretchFactor(1, 2)
-        self.splitter.setChildrenCollapsible(False)
-        lay.addWidget(self.splitter)
-
-        btn_close = QPushButton("Закрыть")
-        btn_close.setObjectName("btnSecondary")
-        btn_close.clicked.connect(self.accept)
-        lay.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignRight)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_save = QPushButton("Сохранить")
+        btn_save.setObjectName("btnPrimary")
+        btn_save.setDefault(True)
+        btn_save.setAutoDefault(True)
+        btn_save.clicked.connect(self._save_and_close)
+        btn_row.addWidget(btn_save)
+        lay.addLayout(btn_row)
+        QShortcut(QKeySequence(Qt.Key.Key_Return), self, self._save_and_close)
 
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
@@ -179,142 +161,21 @@ class LabelsSettingsDialog(QDialog):
 
     def _on_selection_changed(self, current: QTreeWidgetItem | None, _prev):
         if not current:
-            self.lbl_right_title.setText("Выберите отдел или подотдел слева")
-            self.products_table.setVisible(False)
             self._current_node_obj = None
-            if hasattr(self, "btn_label_rules"):
-                self.btn_label_rules.setEnabled(False)
-            if hasattr(self, "lbl_no_prods"):
-                self.lbl_no_prods.setVisible(False)
+            self.btn_label_rules.setEnabled(False)
             return
         data = current.data(0, Qt.ItemDataRole.UserRole)
         if not data or not isinstance(data, (tuple, list)) or len(data) != 2:
-            self.products_table.setVisible(False)
             self._current_node_obj = None
-            if hasattr(self, "btn_label_rules"):
-                self.btn_label_rules.setEnabled(False)
-            if hasattr(self, "lbl_no_prods"):
-                self.lbl_no_prods.setVisible(False)
+            self.btn_label_rules.setEnabled(False)
             return
         _, obj = data
-        if not isinstance(obj, dict):
-            self.products_table.setVisible(False)
+        if not isinstance(obj, dict) or not obj.get("key"):
             self._current_node_obj = None
-            if hasattr(self, "btn_label_rules"):
-                self.btn_label_rules.setEnabled(False)
-            if hasattr(self, "lbl_no_prods"):
-                self.lbl_no_prods.setVisible(False)
-            return
-        key = obj.get("key")
-        if not key:
-            self.products_table.setVisible(False)
-            self._current_node_obj = None
-            if hasattr(self, "btn_label_rules"):
-                self.btn_label_rules.setEnabled(False)
-            if hasattr(self, "lbl_no_prods"):
-                self.lbl_no_prods.setVisible(False)
+            self.btn_label_rules.setEnabled(False)
             return
         self._current_node_obj = obj
-        if hasattr(self, "btn_label_rules"):
-            self.btn_label_rules.setEnabled(True)
-        self.lbl_right_title.setText(f"Продукты: {obj.get('name', '')}")
-        products = sorted(
-            [p for p in (data_store.get_ref("products") or []) if p.get("deptKey") == key],
-            key=lambda p: (p.get("name") or "").lower()
-        )
-        self._updating = True
-        self.products_table.setRowCount(len(products))
-        if hasattr(self, "lbl_no_prods"):
-            self.lbl_no_prods.setVisible(len(products) == 0)
-        for row, prod in enumerate(products):
-            pname = prod.get("name", "")
-            self.products_table.setItem(row, 0, QTableWidgetItem(f"{pname} ({prod.get('unit', '')})"))
-            tpl = prod.get("labelTemplatePath") or ""
-            lbl = QLabel(os.path.basename(tpl) if tpl else "—")
-            btn = QPushButton()
-            btn.setObjectName("btnIcon")
-            btn.setFixedWidth(36)
-            btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
-            btn.setIconSize(QSize(18, 18))
-            btn.setToolTip("Выбрать файл шаблона XLS")
-            btn_clear = QPushButton()
-            btn_clear.setFixedWidth(36)
-            btn_clear.setObjectName("btnIconDanger")
-            trash_icon = getattr(QStyle.StandardPixmap, "SP_TrashIcon", QStyle.StandardPixmap.SP_DialogDiscardButton)
-            btn_clear.setIcon(self.style().standardIcon(trash_icon))
-            btn_clear.setIconSize(QSize(18, 18))
-            btn_clear.setToolTip("Снять шаблон")
-            btn_clear.setVisible(bool(tpl))
-            btn.clicked.connect(lambda checked=False, n=pname, l=lbl, b=btn_clear: self._on_select_template(n, l, b))
-            btn_clear.clicked.connect(lambda checked=False, n=pname, l=lbl, b=btn_clear: self._on_clear_template(n, l, b))
-            cell = QWidget()
-            cell_lay = QHBoxLayout(cell)
-            cell_lay.setContentsMargins(4, 0, 4, 0)
-            cell_lay.setSpacing(4)
-            cell_lay.addWidget(lbl, 1)
-            cell_lay.addWidget(btn)
-            cell_lay.addWidget(btn_clear)
-            self.products_table.setCellWidget(row, 1, cell)
-            btn_preview = QPushButton("Предпросмотр")
-            btn_preview.setObjectName("btnSecondary")
-            btn_preview.setEnabled(bool(tpl))
-            btn_preview.clicked.connect(lambda checked=False, n=pname: self._on_preview_template(n))
-            self.products_table.setCellWidget(row, 2, btn_preview)
-        self._updating = False
-        self.products_table.setVisible(True)
-        if hasattr(self, "lbl_no_prods"):
-            self.lbl_no_prods.setVisible(len(products) == 0)
-
-    def _on_select_template(self, product_name: str, label_widget: QLabel, btn_clear: QPushButton | None = None):
-        start_dir = ""
-        products = data_store.get_ref("products") or []
-        prod = next((p for p in products if p.get("name") == product_name), None)
-        if prod and prod.get("labelTemplatePath") and os.path.isfile(prod["labelTemplatePath"]):
-            start_dir = os.path.dirname(prod["labelTemplatePath"])
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Шаблон этикетки (XLS)",
-            start_dir or None,
-            "Excel 97-2003 (*.xls);;Все файлы (*)",
-        )
-        if path:
-            path = os.path.normpath(path)
-            if path.lower().endswith(".xlsx"):
-                QMessageBox.warning(
-                    self, "Формат файла",
-                    "Поддерживается только формат Excel 97-2003 (.xls). Выберите файл .xls или сохраните шаблон в этом формате.",
-                )
-                return
-            if data_store.update_product(product_name, labelTemplatePath=path):
-                label_widget.setText(os.path.basename(path))
-                if btn_clear is not None:
-                    btn_clear.setVisible(True)
-                for row in range(self.products_table.rowCount()):
-                    it = self.products_table.item(row, 0)
-                    if it and product_name in it.text():
-                        w = self.products_table.cellWidget(row, 2)
-                        if isinstance(w, QPushButton):
-                            w.setEnabled(True)
-                        break
-            else:
-                QMessageBox.warning(
-                    self, "Ошибка",
-                    f"Не удалось привязать шаблон к продукту «{product_name}». Проверьте, что продукт есть в справочнике.",
-                )
-
-    def _on_clear_template(self, product_name: str, label_widget: QLabel, btn_clear: QPushButton):
-        data_store.update_product(product_name, labelTemplatePath="")
-        label_widget.setText("—")
-        btn_clear.setVisible(False)
-        for row in range(self.products_table.rowCount()):
-            it = self.products_table.item(row, 0)
-            if it and product_name in it.text():
-                w = self.products_table.cellWidget(row, 2)
-                if isinstance(w, QPushButton):
-                    w.setEnabled(False)
-                break
-
-    def _on_preview_template(self, product_name: str):
-        open_label_template_editor(product_name, self)
+        self.btn_label_rules.setEnabled(True)
 
     def _on_label_rules(self):
         if not self._current_node_obj:
@@ -390,9 +251,12 @@ class LabelRulesDialog(QDialog):
         btn_lay.addStretch()
         btn_ok = QPushButton("Сохранить")
         btn_ok.setObjectName("btnPrimary")
+        btn_ok.setDefault(True)
+        btn_ok.setAutoDefault(True)
         btn_ok.clicked.connect(self._save)
         btn_lay.addWidget(btn_ok)
         lay.addLayout(btn_lay)
+        QShortcut(QKeySequence(Qt.Key.Key_Return), self, self._save)
 
     def _on_mode_changed(self):
         mode = self.combo_mode.currentData()

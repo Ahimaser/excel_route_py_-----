@@ -41,6 +41,7 @@ logging.basicConfig(
     ]
 )
 log = logging.getLogger("app")
+log.debug("Запуск из: %s", os.path.dirname(os.path.abspath(__file__)))
 
 
 def _global_excepthook(exc_type, exc_value, exc_tb):
@@ -87,57 +88,55 @@ PAGE_TITLES = {
 
 # Краткие подсказки (при наведении на «!»)
 PAGE_HINTS_SHORT = {
-    "dashboard": "Главная: обработка файлов, последние маршруты, этикетки.",
-    "home": "Загрузка XLS, выбор папки, обработка.",
-    "labels": "Этикетки по шаблонам продуктов.",
-    "preview_general": "Таблица маршрутов, поиск, фильтр, создание файла.",
-    "preview_dept": "Маршруты по отделам, фильтр, генерация файлов.",
+    "dashboard": "Стартовая страница: описание, место сохранения, отчёт по последним маршрутам.",
+    "home": "Загрузка XLS-файлов маршрутов (ШК/СД), выбор папки сохранения и даты.",
+    "labels": "Создание и печать этикеток по отделам и продуктам.",
+    "preview_general": "Таблица общих маршрутов: поиск, фильтр, редактирование. Переход к маршрутам по отделам.",
+    "preview_dept": "Маршруты по отделам: вкладки отделов, создание XLS-файлов и этикеток.",
 }
 
 # Подробные инструкции по пунктам (при нажатии на «!»)
 PAGE_HINTS_LONG = {
     "dashboard": (
         "Инструкция — Главная страница\n\n"
-        "1. «Обработать файлы» — переход к загрузке XLS-файлов маршрутов (ШК и/или СД).\n"
-        "2. «Последние (основной)» — открыть последние сохранённые маршруты основного типа.\n"
-        "3. «Последние (довоз)» — открыть последние сохранённые маршруты довоза.\n"
-        "4. «Этикетки» — переход к созданию этикеток XLS по шаблонам.\n"
-        "5. «Очистить» — удалить сохранённые «последние» маршруты из памяти."
+        "1. «История» — выбор сохранённых маршрутов из списка (основные и довоз).\n"
+        "2. «Последние (основной)» — открыть последние маршруты основного типа.\n"
+        "3. «Последние (довоз)» — открыть последние маршруты довоза.\n"
+        "4. Обработка файлов, этикетки — через вкладки ленты сверху."
     ),
     "home": (
         "Инструкция — Обработка файлов\n\n"
         "1. Выберите тип файла: основной или довоз (увеличение).\n"
-        "2. Укажите папку сохранения результатов.\n"
-        "3. Перетащите XLS-файлы в зону загрузки или нажмите «Выбрать файлы».\n"
-        "4. При необходимости измените категорию маршрутов (ШК/СД) для округления.\n"
-        "5. Нажмите «Обработать» — после обработки откроется предпросмотр."
+        "2. Укажите папку сохранения и дату для заголовков.\n"
+        "3. Перетащите XLS-файлы в зону загрузки или нажмите по зоне для выбора файлов.\n"
+        "4. Файлы ШК (школы) и СД (сады) загружаются отдельно.\n"
+        "5. Нажмите «Обработать» — при новых названиях продуктов появится диалог выбора (новый продукт или дубликат)."
     ),
     "labels": (
         "Инструкция — Этикетки\n\n"
-        "1. Убедитесь, что маршруты загружены (обработайте файлы или откройте последние).\n"
-        "2. Выберите продукт в списке и нажмите «Загрузить шаблон» — укажите XLS-шаблон для этого продукта.\n"
-        "3. Либо откройте «Настройки этикеток» и задайте шаблон для продуктов по отделам.\n"
-        "4. Нажмите «Создать XLS по шаблонам» — файлы сохранятся в папку «Этикетки на ДД.ММ.ГГГГ»."
+        "1. Убедитесь, что маршруты загружены (обработайте файлы или откройте из истории).\n"
+        "2. Выберите отдел и продукт в списке слева.\n"
+        "3. «Предпросмотр» — просмотр таблицы этикеток перед печатью.\n"
+        "4. «Печать этикеток» — создание PDF и печать (требуется Excel или PyMuPDF).\n"
+        "5. «Настройки этикеток» — включение отделов, режимы чищенка/сыпучка."
     ),
     "preview_general": (
-        "Инструкция — Предпросмотр (общие маршруты)\n\n"
-        "1. Поиск: введите текст в поле поиска или нажмите Ctrl+F.\n"
+        "Инструкция — Общие маршруты\n\n"
+        "1. Поиск: введите текст или нажмите Ctrl+F.\n"
         "2. Фильтр по продукту: выберите продукт в выпадающем списке.\n"
-        "3. Двойной клик по номеру маршрута — изменить номер.\n"
-        "4. Правый клик по строке — исключить маршрут из выгрузки или удалить.\n"
+        "3. Двойной клик по номеру маршрута — редактирование номера.\n"
+        "4. Правый клик по строке — исключить маршрут из выгрузки.\n"
         "5. Ctrl+колёсико мыши над таблицей — изменить размер шрифта.\n"
-        "6. «Создать файл» — сформировать Excel «Общие маршруты».\n"
-        "7. «Этикетки» — создать этикетки по шаблонам.\n"
-        "8. «Справочник продуктов» — настройки продуктов и кол-во в шт (ПКМ по продукту)."
+        "6. «Далее» — переход к маршрутам по отделам для создания файлов.\n"
+        "7. ПКМ по продукту — настройки количества в штуках."
     ),
     "preview_dept": (
         "Инструкция — Маршруты по отделам\n\n"
-        "1. В фильтре «Показать отдел/подотдел» выберите нужный отдел или «Все отделы».\n"
-        "2. Вкладки — по одной на каждый отдел/подотдел с таблицей маршрутов.\n"
-        "3. Ctrl+колёсико мыши над таблицей — изменить размер шрифта.\n"
-        "4. «Сгенерировать все» — создать Excel-файлы по отделам в выбранную папку.\n"
-        "5. «Этикетки» — создать этикетки в папку «Этикетки на ДД.ММ.ГГГГ».\n"
-        "6. «Отделы и продукты» — открыть настройку привязки продуктов к отделам."
+        "1. Вкладки сверху — выбор отдела; подотделы отображаются под ними.\n"
+        "2. «Выбрать папку» — указать место сохранения (при открытии из истории подставляется автоматически).\n"
+        "3. «Создать файлы для всех отделов» — генерация XLS-файлов и этикеток.\n"
+        "4. Ctrl+колёсико мыши над таблицей — изменить размер шрифта.\n"
+        "5. При непривязанных продуктах появится баннер — откройте «Отделы и продукты»."
     ),
 }
 
@@ -150,22 +149,43 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName("Маршруты, Сборка")
+
+    from core import license_check
+    if not license_check.check_license(app):
+        sys.exit(1)
     app.setOrganizationName("RouteManager")
-    app_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "app_icon.svg")
+    assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+    app_icon_path = os.path.join(assets_dir, "app_icon.png")
+    if not os.path.isfile(app_icon_path):
+        app_icon_path = os.path.join(assets_dir, "app_icon.svg")
     if os.path.isfile(app_icon_path):
         app_icon = QIcon(app_icon_path)
         if not app_icon.isNull():
             app.setWindowIcon(app_icon)
 
-    # Тема в стиле веб-приложения (Material Design)
+    # Тема: светлая или тёмная (из настроек)
+    from core import data_store
+    dark_theme = bool(data_store.get_setting("darkTheme"))
     try:
-        from qt_material import apply_stylesheet
-        apply_stylesheet(app, theme="light_blue.xml", invert_secondary=True)
-        try:
-            from ui.styles import QUANTITY_DIALOG_EXTRA, RIBBON_TABS_EXTRA
-            app.setStyleSheet(app.styleSheet() + RIBBON_TABS_EXTRA + QUANTITY_DIALOG_EXTRA)
-        except ImportError:
-            pass
+        from ui.styles import (
+            STYLESHEET, STYLESHEET_DARK,
+            QUANTITY_DIALOG_EXTRA, QUANTITY_DIALOG_EXTRA_DARK,
+            RIBBON_TABS_EXTRA, RIBBON_TABS_EXTRA_DARK,
+        )
+        if dark_theme:
+            base = STYLESHEET_DARK
+            ribbon = RIBBON_TABS_EXTRA_DARK
+            quantity = QUANTITY_DIALOG_EXTRA_DARK
+        else:
+            try:
+                from qt_material import apply_stylesheet
+                apply_stylesheet(app, theme="light_blue.xml", invert_secondary=True)
+                base = app.styleSheet()
+            except ImportError:
+                base = STYLESHEET
+            ribbon = RIBBON_TABS_EXTRA
+            quantity = QUANTITY_DIALOG_EXTRA
+        app.setStyleSheet(base + ribbon + quantity)
     except ImportError:
         from ui.styles import STYLESHEET
         app.setStyleSheet(STYLESHEET)
@@ -184,8 +204,11 @@ def main():
     except Exception:
         log.critical("Ошибка при создании MainWindow:\n%s", traceback.format_exc())
         raise
-    if os.path.isfile(app_icon_path):
-        app_icon = QIcon(app_icon_path)
+    icon_path = os.path.join(assets_dir, "app_icon.png")
+    if not os.path.isfile(icon_path):
+        icon_path = os.path.join(assets_dir, "app_icon.svg")
+    if os.path.isfile(icon_path):
+        app_icon = QIcon(icon_path)
         if not app_icon.isNull():
             window.setWindowIcon(app_icon)
 
@@ -271,6 +294,11 @@ def main():
         try:
             from ui.pages.quantity_settings_dialog import open_quantity_settings_dialog
             open_quantity_settings_dialog(window, window.app_state)
+            # После закрытия — обновить preview страницы если открыты
+            for name in ("preview_dept", "preview_general"):
+                p = _page_cache.get(name)
+                if p is not None and hasattr(p, "refresh"):
+                    p.refresh()
         except Exception:
             log.critical("Ошибка при открытии Настройки Количества:\n%s", traceback.format_exc())
             try:
@@ -292,6 +320,15 @@ def main():
         "templates":   _open_templates,
     }
 
+    def _refresh_preview_pages():
+        """Обновляет страницы предпросмотра (для вызова после закрытия настроек)."""
+        for name in ("preview_general", "preview_dept"):
+            p = _page_cache.get(name)
+            if p is not None and hasattr(p, "refresh"):
+                p.refresh()
+
+    window.app_state["refresh_preview_pages"] = _refresh_preview_pages
+
     # ── Очистка маршрутов ───────────────────────────────────────────────────
 
     def _clear_routes_and_go_dashboard():
@@ -303,6 +340,7 @@ def main():
             "uniqueProducts": [], "filteredRoutes": [],
             "routeCategory": "ШК", "sortAsc": True,
             "institutionList": [],
+            "generalFileCreated": False, "deptFilesCreated": False,
         })
         home = _page_cache.get("home")
         if home and hasattr(home, "reset"):
@@ -327,13 +365,28 @@ def main():
         if callable(set_status) and n:
             set_status(f"Загружено {n} маршрутов")
         window.app_state["institutionList"] = data_store.get_institution_list_from_routes(filtered)
-        window.app_state.update({
+        # routesDate в формате DD.MM.YYYY из date или timestamp
+        date_raw = data.get("date") or (data.get("timestamp") or "")[:10]
+        if date_raw and len(date_raw) >= 10:
+            parts = date_raw.split("-")
+            routes_date = f"{parts[2]}.{parts[1]}.{parts[0]}" if len(parts) == 3 else date_raw
+        else:
+            routes_date = None
+        update = {
             "fileType":       file_type,
             "routes":         routes,
             "uniqueProducts": unique_products,
             "filteredRoutes": filtered,
             "routeCategory":  data.get("routeCategory") or "ШК",
-        })
+            "generalFileCreated": True,   # из истории — файлы уже обработаны
+            "deptFilesCreated": True,
+        }
+        if routes_date:
+            update["routesDate"] = routes_date
+        # Папка сохранения из истории (если была сохранена при обработке)
+        if data.get("saveDir"):
+            update["saveDir"] = data["saveDir"]
+        window.app_state.update(update)
         navigate("preview_general")
 
     def _load_last_and_go_preview(file_type: str):
@@ -370,11 +423,8 @@ def main():
                 from ui.pages.dashboard_page import DashboardPage
                 page = DashboardPage(window.app_state)
                 page.open_history.connect(lambda: _open_history_and_go_preview(None))
-                page.go_process_files.connect(lambda: navigate("home"))
                 page.go_last_main.connect(lambda: _load_last_and_go_preview("main"))
                 page.go_last_increase.connect(lambda: _load_last_and_go_preview("increase"))
-                page.go_labels.connect(lambda: navigate("labels"))
-                page.go_clear.connect(_clear_routes_and_go_dashboard)
 
             elif name == "home":
                 from ui.pages.home_page import HomePage
@@ -384,15 +434,12 @@ def main():
             elif name == "labels":
                 from ui.pages.labels_page import LabelsPage
                 page = LabelsPage(window.app_state)
-                page.go_back.connect(lambda: navigate("dashboard"))
                 page.go_open_routes.connect(lambda: _open_history_and_go_preview("main"))
                 page.go_process_files.connect(lambda: navigate("home"))
 
             elif name == "preview_general":
                 from ui.pages.preview_general_page import PreviewGeneralPage
                 page = PreviewGeneralPage(window.app_state)
-                page.go_back.connect(lambda: navigate("home"))
-                page.go_home.connect(lambda: navigate("dashboard"))
                 page.go_dept_preview.connect(lambda: navigate("preview_dept"))
                 page.go_settings.connect(_open_products)
                 page.go_clear_routes.connect(_clear_routes_and_go_dashboard)
@@ -400,8 +447,6 @@ def main():
             elif name == "preview_dept":
                 from ui.pages.preview_dept_page import PreviewDeptPage
                 page = PreviewDeptPage(window.app_state)
-                page.go_back.connect(lambda: navigate("preview_general"))
-                page.go_home.connect(lambda: navigate("dashboard"))
                 page.go_clear_routes.connect(_clear_routes_and_go_dashboard)
 
             else:

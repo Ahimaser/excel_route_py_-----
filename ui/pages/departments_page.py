@@ -13,10 +13,11 @@ from PyQt6.QtWidgets import (
     QLineEdit, QComboBox, QFormLayout, QDialogButtonBox,
     QMessageBox, QInputDialog, QListWidget, QListWidgetItem, QHeaderView,
     QMenu, QApplication, QStyle, QScrollArea, QFrame,
+    QToolButton,
 )
 from PyQt6.QtCore import Qt, QTimer, QMimeData
 from PyQt6.QtGui import QFont, QAction, QShortcut, QKeySequence
-from PyQt6.QtGui import QDrag
+from PyQt6.QtGui import QDrag, QBrush, QColor
 
 from core import data_store
 from ui.widgets import hint_icon_button, CommitLineEdit, SearchableList, ToggleSwitch
@@ -138,39 +139,61 @@ class DepartmentsDialog(QDialog):
         title_row.addWidget(QLabel("Отделы и продукты"))
         title_row.addWidget(hint_icon_button(
             self,
-            "Отдел → Подотдел → Продукт. ПКМ: Редактировать, Удалить. Продукты: Ctrl+клик, Вырезать/Вставить, перетаскивание.",
+            "Иерархия: Отдел → Подотдел → Продукт. ПКМ — редактировать/удалить. Продукты: Ctrl+клик, Вырезать/Вставить, перетаскивание.",
             "Инструкция — Отделы и продукты\n\n"
-            "1. Иерархия: Отдел → Подотделы → Продукты. Добавление: кнопки «+ Отдел», «+ Подотдел», «+ Продукт» или из диалога «Новые названия».\n"
-            "2. ПКМ по отделу/подотделу: Редактировать название, Удалить.\n"
-            "3. Колонка «Печатать этикетки»: галочка у отдела/подотдела — включать его при создании этикеток (XLS по шаблонам).\n"
-            "4. Продукты: Ctrl+клик — выбрать несколько. Вырезать (Ctrl+X), затем Вставить (Ctrl+V) в другой отдел. Можно перетаскивать в другой узел дерева.\n"
-            "5. При удалении отдела/подотдела продукты остаются без привязки (видны в Справочнике продуктов в блоке «Без отдела»).",
+            "1. Иерархия: Отдел → Подотделы → Продукты. Кнопки «+ Добавить» (меню) или «+ Отдел», «+ Подотдел», «+ Продукт».\n"
+            "2. Бейдж [N] — количество продуктов в отделе/подотделе.\n"
+            "3. ПКМ по отделу/подотделу: Переименовать, Удалить.\n"
+            "4. Колонка «Печатать этикетки»: галочка включает отдел при создании этикеток.\n"
+            "5. Продукты: Ctrl+клик — выбор нескольких. Ctrl+X / Ctrl+V — вырезать и вставить в другой отдел. Перетаскивание мышью.\n"
+            "6. При удалении отдела продукты остаются без привязки (видны в Справочнике продуктов).",
             "Инструкция",
         ))
         title_row.addStretch()
         lay.addLayout(title_row)
 
         hint = QLabel(
-            "Иерархия: Отдел → Подотдел → Продукт. ПКМ по элементу: Редактировать, Удалить. "
-            "Продукты: Ctrl+клик — несколько; Вырезать (Ctrl+X) и Вставить в отдел (Ctrl+V); перетащить в другой отдел."
+            "Иерархия: Отдел → Подотдел → Продукт. ПКМ по элементу — редактировать или удалить. "
+            "Продукты: Ctrl+клик для выбора нескольких; Ctrl+X / Ctrl+V — вырезать и вставить; перетаскивание в другой отдел."
         )
         hint.setObjectName("hintLabel")
         hint.setWordWrap(True)
         lay.addWidget(hint)
 
         btn_bar = QHBoxLayout()
-        btn_add_dept = QPushButton("+ Добавить отдел")
-        btn_add_dept.setObjectName("btnPrimary")
+        btn_add = QToolButton()
+        btn_add.setText("+ Добавить")
+        btn_add.setObjectName("btnPrimary")
+        btn_add.setToolTip("Добавить отдел, подотдел или привязать продукт")
+        add_menu = QMenu(self)
+        act_dept = add_menu.addAction("Отдел")
+        act_dept.setToolTip("Создать новый отдел")
+        act_dept.triggered.connect(self._add_dept)
+        act_sub = add_menu.addAction("Подотдел")
+        act_sub.setToolTip("Добавить подотдел в выбранный отдел")
+        act_sub.triggered.connect(self._add_subdept)
+        act_prod = add_menu.addAction("Привязать продукт")
+        act_prod.setToolTip("Привязать свободные продукты к отделу или подотделу")
+        act_prod.triggered.connect(self._add_product)
+        btn_add.setMenu(add_menu)
+        btn_add.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        btn_bar.addWidget(btn_add)
+
+        btn_add_dept = QPushButton("+ Отдел")
+        btn_add_dept.setObjectName("btnSecondary")
+        btn_add_dept.setToolTip("Быстро добавить отдел")
         btn_add_dept.clicked.connect(self._add_dept)
         btn_bar.addWidget(btn_add_dept)
 
-        btn_add_subdept = QPushButton("+ Добавить подотдел")
+        btn_add_subdept = QPushButton("+ Подотдел")
         btn_add_subdept.setObjectName("btnSecondary")
+        btn_add_subdept.setToolTip("Добавить подотдел в выбранный отдел")
         btn_add_subdept.clicked.connect(self._add_subdept)
         btn_bar.addWidget(btn_add_subdept)
 
-        btn_add_prod = QPushButton("+ Привязать продукт")
+        btn_add_prod = QPushButton("+ Продукт")
         btn_add_prod.setObjectName("btnSecondary")
+        btn_add_prod.setToolTip("Привязать продукт к отделу")
         btn_add_prod.clicked.connect(self._add_product)
         btn_bar.addWidget(btn_add_prod)
 
@@ -191,13 +214,14 @@ class DepartmentsDialog(QDialog):
 
         self._cut_product_names: list[str] = []
         self.tree = DeptsTreeWidget(self)
-        self.tree.setHeaderLabels(["Название", "Тип", "Ед. изм. / кол-во", "Печатать этикетки"])
+        self.tree.setObjectName("deptsProductsTree")
+        self.tree.setHeaderLabels(["Название", "Ед. изм. / кол-во", "Печатать этикетки"])
         hdr = self.tree.header()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.setAlternatingRowColors(True)
+        self.tree.setUniformRowHeights(True)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree_updating = False
@@ -208,10 +232,16 @@ class DepartmentsDialog(QDialog):
         sc_paste = QShortcut(QKeySequence.StandardKey.Paste, self.tree)
         sc_paste.activated.connect(self._on_paste)
 
-        btn_close = QPushButton("Закрыть")
-        btn_close.setObjectName("btnSecondary")
-        btn_close.clicked.connect(self.accept)
-        lay.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignRight)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_save = QPushButton("Сохранить")
+        btn_save.setObjectName("btnPrimary")
+        btn_save.setDefault(True)
+        btn_save.setAutoDefault(True)
+        btn_save.clicked.connect(self.accept)
+        btn_row.addWidget(btn_save)
+        lay.addLayout(btn_row)
+        QShortcut(QKeySequence(Qt.Key.Key_Return), self, self.accept)
 
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
@@ -250,30 +280,42 @@ class DepartmentsDialog(QDialog):
             icon_sub = icon_dept
         icon_prod = style.standardIcon(QStyle.StandardPixmap.SP_FileIcon)
 
+        card_bg = QBrush(QColor("#F8FAFC"))
         for dept in sorted(depts, key=lambda d: d["name"].lower()):
+            dept_count = prod_index.get(dept["key"], 0)
             dept_item = QTreeWidgetItem([
-                dept["name"], "Отдел",
-                str(prod_index.get(dept["key"], 0)), ""
+                f"{dept['name']}  [{dept_count}]",
+                "",
+                ""
             ])
             dept_item.setData(0, Qt.ItemDataRole.UserRole, dept)
             dept_item.setIcon(0, icon_dept)
             dept_item.setFont(0, bold_font)
+            dept_item.setBackground(0, card_bg)
+            dept_item.setBackground(1, card_bg)
+            dept_item.setBackground(2, card_bg)
 
             for sub in sorted(dept.get("subdepts", []), key=lambda s: s["name"].lower()):
+                sub_count = prod_index.get(sub["key"], 0)
                 sub_item = QTreeWidgetItem([
-                    sub["name"], "Подотдел",
-                    str(prod_index.get(sub["key"], 0)), ""
+                    f"{sub['name']}  [{sub_count}]",
+                    "",
+                    ""
                 ])
                 sub_item.setData(0, Qt.ItemDataRole.UserRole, sub)
                 sub_item.setIcon(0, icon_sub)
+                sub_item.setBackground(0, card_bg)
+                sub_item.setBackground(1, card_bg)
+                sub_item.setBackground(2, card_bg)
 
                 for prod in sorted(
                     (p for p in products if p.get("deptKey") == sub["key"]),
                     key=lambda p: p["name"].lower()
                 ):
                     prod_item = QTreeWidgetItem([
-                        prod["name"], "Продукт",
-                        prod.get("unit", ""), ""
+                        prod["name"],
+                        prod.get("unit", ""),
+                        ""
                     ])
                     prod_item.setData(0, Qt.ItemDataRole.UserRole, prod)
                     prod_item.setIcon(0, icon_prod)
@@ -287,8 +329,9 @@ class DepartmentsDialog(QDialog):
                 key=lambda p: p["name"].lower()
             ):
                 prod_item = QTreeWidgetItem([
-                    prod["name"], "Продукт",
-                    prod.get("unit", ""), ""
+                    prod["name"],
+                    prod.get("unit", ""),
+                    ""
                 ])
                 prod_item.setData(0, Qt.ItemDataRole.UserRole, prod)
                 prod_item.setIcon(0, icon_prod)
@@ -317,7 +360,7 @@ class DepartmentsDialog(QDialog):
             lambda state, it=item: self._on_labels_toggle_changed(it, state == Qt.CheckState.Checked.value)
         )
         row.addWidget(tog)
-        self.tree.setItemWidget(item, 3, host)
+        self.tree.setItemWidget(item, 2, host)
 
     def _on_labels_toggle_changed(self, item: QTreeWidgetItem, enabled: bool) -> None:
         obj = item.data(0, Qt.ItemDataRole.UserRole)
@@ -451,7 +494,7 @@ class DepartmentsDialog(QDialog):
                 subs = dept.get("subdepts", [])
                 sub_key = f"sub_{dept_key}_{len(subs)}_{name[:10]}"
                 sub_obj = {"key": sub_key, "name": name, "labelsEnabled": True}
-                if "чищенка" in name.lower():
+                if "очищенные" in name.lower():
                     sub_obj["labelPrintMode"] = "chistchenka"
                 elif "сыпучка" in name.lower():
                     sub_obj["labelPrintMode"] = "sypuchka"

@@ -13,7 +13,7 @@ _BORDER_LIGHT = "#E3E9F3"      # Светлые границы
 _ACCENT = "#0085DB"            # Основной синий (var(--mat-sys-primary))
 _ACCENT_HOVER = "#006FB5"      # Hover для синей кнопки
 _ACCENT_LIGHT = "rgba(0, 133, 219, 0.10)"  # Фон выделения / бейджей
-_ACCENT_RIpple = "rgba(0, 133, 219, 0.18)" # Ripple / нажатие
+_ACCENT_RIPPLE = "rgba(0, 133, 219, 0.18)"  # Ripple / нажатие
 _EXCEL_SELECT = "#0085DB"      # Цвет выделения строк
 _EXCEL_SELECT_BG = "rgba(0, 133, 219, 0.14)"
 _TEXT = "#111827"              # Основной текст (почти чёрный)
@@ -30,6 +30,25 @@ _MENU_BAR_BG = "#FFFFFF"       # Светлая верхняя полоса
 # Публичные константы для инлайн-стилей
 ACCENT = _ACCENT
 ACCENT_LIGHT = _ACCENT_LIGHT
+
+# Палитра тёмной темы
+_BG_MAIN_DARK = "#1E293B"
+_BG_SURFACE_DARK = "#334155"
+_BG_CARD_DARK = "#334155"
+_RIBBON_BG_DARK = "#334155"
+_BORDER_DARK = "#475569"
+_BORDER_LIGHT_DARK = "#64748B"
+_ACCENT_DARK = "#38BDF8"
+_ACCENT_HOVER_DARK = "#0EA5E9"
+_ACCENT_LIGHT_DARK = "rgba(56, 189, 248, 0.15)"
+_EXCEL_SELECT_DARK = "#38BDF8"
+_EXCEL_SELECT_BG_DARK = "rgba(56, 189, 248, 0.2)"
+_TEXT_DARK = "#F1F5F9"
+_TEXT_MUTED_DARK = "#94A3B8"
+_TEXT_LIGHT_DARK = "#64748B"
+_TABLE_HEADER_BG_DARK = "#475569"
+_STATUS_BAR_BG_DARK = "#334155"
+_MENU_BAR_BG_DARK = "#334155"
 
 STYLESHEET = f"""
 /* ─── База: стиль окна Excel (компактный) ─── */
@@ -175,7 +194,7 @@ QPushButton#btnSecondary:hover {{
     border-color: {_ACCENT};
 }}
 QPushButton#btnSecondary:pressed {{
-    background-color: {_ACCENT_RIpple};
+    background-color: {_ACCENT_RIPPLE};
 }}
 QPushButton#btnDanger {{
     background-color: {_DANGER_LIGHT};
@@ -226,6 +245,17 @@ QFrame#card {{
     border: 1px solid {_BORDER};
     border-radius: 6px;
     padding: 8px;
+}}
+
+/* ─── Дерево отделов и продуктов ─── */
+QTreeWidget#deptsProductsTree {{
+    background-color: {_BG_SURFACE};
+    border: 1px solid {_BORDER};
+    border-radius: 6px;
+    padding: 4px;
+}}
+QTreeWidget#deptsProductsTree::item {{
+    padding: 4px 6px;
 }}
 
 /* ─── Вкладки внутри страниц (QTabWidget) ─── */
@@ -663,6 +693,154 @@ QLabel#dropZoneIcon {{
     font-size: 32px;
 }}
 
+/* ─── Зона перетаскивания (drop zone) ─── */
+QFrame#dropZoneCard {{
+    background-color: {_BG_CARD};
+    border: 2px dashed {_BORDER};
+    border-radius: 10px;
+}}
+QFrame#dropZoneCard[dropZoneHover="true"] {{
+    border: 2px dashed {_ACCENT};
+    background: {_ACCENT_LIGHT};
+    border-radius: 10px;
+}}
+
+/* ─── Доп. метки ─── */
+QLabel#unitLabel {{
+    margin-left: 4px;
+    font-weight: 500;
+}}
+QLabel#cardPreview {{
+    font-size: 12px;
+    color: {_TEXT_MUTED};
+}}
+QLabel#emptyHintLabel {{
+    color: palette(mid);
+    font-style: italic;
+}}
+QLabel#selectedTotalLabel {{
+    font-weight: 600;
+}}
+QCheckBox#boldCheckBox {{
+    font-weight: 600;
+}}
+QCheckBox#indentedCheckBox {{
+    margin-left: 24px;
+    font-size: 11px;
+}}
+
+/* ─── Поле ввода номера маршрута (EditPanel) ─── */
+QLineEdit#editRouteNumInput {{
+    border: 2px solid {_ACCENT};
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 16px;
+    background: {_BG_SURFACE};
+}}
+QLineEdit#editRouteNumInput:focus {{
+    border-color: {_ACCENT_HOVER};
+}}
+QLineEdit#editRouteNumInput[hasError="true"] {{
+    border: 2px solid {_DANGER};
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 16px;
+    background: {_BG_SURFACE};
+}}
+
+/* ─── Карточка учреждения (выбранная) ─── */
+QFrame#instCard {{
+    background-color: {_BG_CARD};
+    border: 1px solid {_BORDER};
+}}
+QFrame#instCard[selected="true"] {{
+    border: 2px solid {_ACCENT};
+    background-color: {_EXCEL_SELECT_BG};
+}}
+
+/* ─── Бейджи статуса учреждений ─── */
+QLabel#badgeOrange {{
+    background-color: #FEF3C7;
+    color: #F59E0B;
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-weight: 700;
+}}
+QLabel#badgeGray {{
+    background-color: rgba(156, 163, 175, 0.2);
+    color: {_TEXT_MUTED};
+    border: 1px solid {_BORDER};
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-weight: 700;
+}}
+
+/* ─── Заголовки статуса учреждений ─── */
+QLabel#instTitleGreen {{
+    font-size: 16px;
+    font-weight: 500;
+    color: {_SUCCESS};
+}}
+QLabel#instTitleOrange {{
+    font-size: 16px;
+    font-weight: 500;
+    color: #F59E0B;
+}}
+QLabel#instTitleGray {{
+    font-size: 16px;
+    font-weight: 500;
+    color: {_TEXT_MUTED};
+}}
+
+/* ─── Кнопка поля шаблона ─── */
+QPushButton#draggableFieldButton {{
+    font-size: 11px;
+    text-align: left;
+    padding: 2px 6px;
+}}
+
+/* ─── Схема замены продукта ─── */
+QFrame#replacementProductCard {{
+    background-color: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+    padding: 6px;
+}}
+QLabel#replacementHint {{
+    font-size: 10px;
+    color: palette(mid);
+}}
+
+/* ─── Таблица шаблона ─── */
+QTableWidget#templateGridTable {{
+    border: 1px solid {_BORDER};
+    border-radius: 4px;
+}}
+QTableWidget#templateGridTable::item {{
+    padding: 6px 8px;
+}}
+QTableWidget#templateGridTable::item:focus {{
+    border: 2px solid {_ACCENT};
+}}
+QFrame#templateTableFrame {{
+    border: 1px solid {_BORDER};
+    border-radius: 6px;
+    padding: 8px;
+    background: {_BG_SURFACE};
+}}
+QLabel#templateHint {{
+    color: {_TEXT_MUTED};
+    font-size: 11px;
+}}
+
+/* ─── Карточки отчёта (dashboard) ─── */
+QLabel#reportIcon {{
+    font-size: 22px;
+}}
+QLabel#reportDesc {{
+    font-size: 10px;
+}}
+
 /* ─── Progress (Material linear) ─── */
 QProgressBar {{
     border: none;
@@ -772,16 +950,51 @@ QDialog#quantitySettingsDialog QFrame#settingsPanel {{
     border-radius: 8px;
     border-left: 3px solid {_ACCENT};
 }}
+"""
 
-QDialog#quantitySettingsDialog QFrame#productCard {{
-    background-color: {_BG_CARD};
-    border: 1px solid {_BORDER};
-    border-radius: 8px;
-}}
-QDialog#quantitySettingsDialog QFrame#productCard:hover {{
-    border-color: {_ACCENT};
-    background-color: #FAFCFF;
-}}
+STYLESHEET_DARK = f"""
+QMainWindow, QDialog, QWidget {{ background-color: {_BG_MAIN_DARK}; color: {_TEXT_DARK}; font-family: "Segoe UI", sans-serif; font-size: 10pt; }}
+QWidget#centralWidget {{ background-color: {_BG_MAIN_DARK}; }}
+QWidget#headerBar {{ background-color: {_RIBBON_BG_DARK}; border-bottom: 1px solid {_BORDER_DARK}; }}
+QTabBar::tab {{ color: {_TEXT_DARK}; }}
+QTabBar::tab:selected {{ background-color: {_BG_MAIN_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QTabBar::tab:!selected {{ color: {_TEXT_LIGHT_DARK}; background-color: rgba(255,255,255,0.05); }}
+QLabel#pageHintIcon, QPushButton#pageHintIcon {{ color: {_TEXT_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QMenuBar {{ background-color: {_MENU_BAR_BG_DARK}; color: {_TEXT_DARK}; }}
+QMenuBar::item:selected {{ background-color: {_ACCENT_DARK}; color: #1E293B; }}
+QMenu {{ background-color: {_BG_CARD_DARK}; color: {_TEXT_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QPushButton#btnPrimary {{ background-color: {_ACCENT_DARK}; color: #1E293B; }}
+QPushButton#btnSecondary {{ background-color: {_BG_CARD_DARK}; color: {_ACCENT_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QFrame#card {{ background-color: {_BG_CARD_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QTreeWidget#deptsProductsTree {{ background-color: {_BG_SURFACE_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QTabWidget::pane {{ background-color: {_BG_CARD_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QFrame#deptTabsBar {{ background-color: {_BG_SURFACE_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QPushButton#deptTab {{ color: {_TEXT_MUTED_DARK}; }}
+QPushButton#deptTab:checked {{ background-color: {_ACCENT_DARK}; color: #1E293B; }}
+QPushButton#subdeptPill {{ background-color: {_BG_SURFACE_DARK}; color: {_TEXT_MUTED_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QPushButton#subdeptPill:checked {{ background-color: {_ACCENT_LIGHT_DARK}; color: {_ACCENT_DARK}; }}
+QLineEdit, QTextEdit {{ background: {_BG_MAIN_DARK}; color: {_TEXT_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QTableWidget, QTableView {{ background: {_BG_MAIN_DARK}; color: {_TEXT_DARK}; gridline-color: {_BORDER_DARK}; }}
+QTableWidget::item:selected, QTableView::item:selected {{ background-color: {_EXCEL_SELECT_BG_DARK}; }}
+QHeaderView::section {{ background-color: {_TABLE_HEADER_BG_DARK}; color: {_TEXT_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QComboBox {{ background: {_BG_MAIN_DARK}; color: {_TEXT_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QComboBox QAbstractItemView {{ background: {_BG_CARD_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QCheckBox, QRadioButton {{ color: {_TEXT_DARK}; }}
+QCheckBox::indicator {{ border: 2px solid {_BORDER_LIGHT_DARK}; background: {_BG_SURFACE_DARK}; }}
+QCheckBox::indicator:checked {{ background-color: {_ACCENT_DARK}; border-color: {_ACCENT_DARK}; }}
+QListWidget, QTreeWidget {{ background: {_BG_MAIN_DARK}; color: {_TEXT_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QListWidget::item:selected, QTreeWidget::item:selected {{ background-color: {_EXCEL_SELECT_BG_DARK}; }}
+QFrame#bannerWarning {{ background-color: #78350F; border: 1px solid #F59E0B; color: {_TEXT_DARK}; }}
+QStatusBar {{ color: {_TEXT_DARK}; background: {_STATUS_BAR_BG_DARK}; border-top: 1px solid {_BORDER_DARK}; }}
+QProgressBar {{ background: {_BORDER_LIGHT_DARK}; }}
+QProgressBar::chunk {{ background-color: {_ACCENT_DARK}; }}
+QFrame#dropZoneCard[dropZoneHover="true"] {{ border: 2px dashed {_ACCENT_DARK}; background: {_ACCENT_LIGHT_DARK}; }}
+QLineEdit#editRouteNumInput {{ border: 2px solid {_ACCENT_DARK}; background: {_BG_SURFACE_DARK}; }}
+QLineEdit#editRouteNumInput[hasError="true"] {{ border: 2px solid {_DANGER}; }}
+QFrame#instCard[selected="true"] {{ border: 2px solid {_ACCENT_DARK}; background-color: {_EXCEL_SELECT_BG_DARK}; }}
+QLabel#badgeOrange {{ background-color: #78350F; color: #F59E0B; }}
+QLabel#badgeGray {{ background-color: rgba(100, 116, 139, 0.3); color: {_TEXT_LIGHT_DARK}; border: 1px solid {_BORDER_DARK}; }}
+QFrame#replacementProductCard {{ background-color: {_BG_CARD_DARK}; border: 1px solid {_BORDER_DARK}; }}
 """
 
 # Стили для ленты вкладок (неактивные — полупрозрачные)
@@ -793,6 +1006,17 @@ QTabBar#ribbonTabBar::tab:!selected {{
 QTabBar#ribbonTabBar::tab:selected {{
     color: {_TEXT};
     background-color: {_BG_MAIN};
+}}
+"""
+
+RIBBON_TABS_EXTRA_DARK = f"""
+QTabBar#ribbonTabBar::tab:!selected {{
+    color: {_TEXT_LIGHT_DARK};
+    background-color: rgba(255, 255, 255, 0.05);
+}}
+QTabBar#ribbonTabBar::tab:selected {{
+    color: {_TEXT_DARK};
+    background-color: {_BG_MAIN_DARK};
 }}
 """
 
@@ -858,4 +1082,16 @@ QUANTITY_DIALOG_EXTRA = f"""
     border-left: 3px solid {_ACCENT};
     border-radius: 8px;
 }}
+"""
+
+QUANTITY_DIALOG_EXTRA_DARK = f"""
+#quantitySettingsDialog #deptTabsBar {{ background-color: {_BG_SURFACE_DARK}; border: 1px solid {_BORDER_DARK}; }}
+#quantitySettingsDialog #deptTabsBar QPushButton#deptTab {{ color: {_TEXT_MUTED_DARK}; }}
+#quantitySettingsDialog #deptTabsBar QPushButton#deptTab:hover {{ background-color: {_BORDER_LIGHT_DARK}; color: {_TEXT_DARK}; }}
+#quantitySettingsDialog #deptTabsBar QPushButton#deptTab:checked {{ background-color: {_ACCENT_DARK}; color: #1E293B; }}
+#quantitySettingsDialog QPushButton#subdeptPill {{ background-color: {_BG_SURFACE_DARK}; color: {_TEXT_MUTED_DARK}; border: 1px solid {_BORDER_DARK}; }}
+#quantitySettingsDialog QPushButton#subdeptPill:checked {{ background-color: {_ACCENT_LIGHT_DARK}; color: {_ACCENT_DARK}; }}
+#quantitySettingsDialog QFrame#productCard {{ background-color: {_BG_CARD_DARK}; border: 1px solid {_BORDER_DARK}; }}
+#quantitySettingsDialog QFrame#productCardSelected {{ border: 2px solid {_ACCENT_DARK}; background-color: {_EXCEL_SELECT_BG_DARK}; }}
+#quantitySettingsDialog QFrame#settingsPanel {{ border-left: 3px solid {_ACCENT_DARK}; }}
 """

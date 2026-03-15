@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QListWidget,
     QListWidgetItem,
-    QFileDialog,
     QSplitter,
 )
 
@@ -46,8 +45,21 @@ def _enabled_dept_items() -> list[dict]:
     return result
 
 
-def _products_for_dept(dept_key: str) -> list[dict]:
+def _products_for_dept(dept_key: str, routes: list[dict] | None = None) -> list[dict]:
+    """
+    Продукты отдела для этикеток. Без шаблонов. Если routes заданы — только те, что есть в маршрутах.
+    """
     products = data_store.get_ref("products") or []
+    products_in_routes: set[str] = set()
+    if routes:
+        for r in routes:
+            if r.get("excluded"):
+                continue
+            for prod in r.get("products", []):
+                name = prod.get("name")
+                if name:
+                    products_in_routes.add(name)
+
     result = []
     for p in products:
         if p.get("deptKey") != dept_key:
@@ -55,10 +67,12 @@ def _products_for_dept(dept_key: str) -> list[dict]:
         name = p.get("name")
         if not name:
             continue
+        if routes is not None and name not in products_in_routes:
+            continue
         result.append({
             "name": name,
             "unit": p.get("unit") or "",
-            "template": p.get("labelTemplatePath") or "",
+            "template": "",  # шаблоны не используются
         })
     return sorted(result, key=lambda x: x["name"].lower())
 
@@ -88,10 +102,6 @@ class LabelsPage(QWidget):
         lay.setSpacing(12)
 
         row = QHBoxLayout()
-        btn_back = QPushButton("← Назад")
-        btn_back.setObjectName("btnBack")
-        btn_back.clicked.connect(self.go_back.emit)
-        row.addWidget(btn_back)
         title = QLabel("Этикетки: live-preview и печать")
         title.setObjectName("sectionTitle")
         row.addWidget(title)
@@ -99,8 +109,8 @@ class LabelsPage(QWidget):
         lay.addLayout(row)
 
         hint = QLabel(
-            "Выберите отдел и продукт, назначьте шаблон .xls, затем откройте предпросмотр "
-            "и печатайте без сохранения итоговых файлов."
+            "Выберите отдел и продукт в списке слева. Файлы этикеток содержат 3 столбца: номер маршрута, дом/строение, количество. "
+            "Создаются в папке маршрутов: Основные/этикетки/{отдел}/ или Довоз/этикетки/{отдел}/."
         )
         hint.setObjectName("stepLabel")
         hint.setWordWrap(True)
@@ -139,6 +149,7 @@ class LabelsPage(QWidget):
         self.combo_type = QComboBox()
         self.combo_type.addItem("Основной", "main")
         self.combo_type.addItem("Довоз", "increase")
+        self.combo_type.currentIndexChanged.connect(self._on_type_changed)
         filters.addWidget(self.combo_type)
         main_lay.addLayout(filters)
 
@@ -165,10 +176,6 @@ class LabelsPage(QWidget):
         self.lbl_selected.setWordWrap(True)
         right_lay.addWidget(self.lbl_selected)
 
-        self.btn_assign_tpl = QPushButton("Добавить шаблон")
-        self.btn_assign_tpl.setObjectName("btnSecondary")
-        self.btn_assign_tpl.clicked.connect(self._on_assign_template)
-        right_lay.addWidget(self.btn_assign_tpl)
         self.btn_preview = QPushButton("Предпросмотр")
         self.btn_preview.setObjectName("btnSecondary")
         self.btn_preview.clicked.connect(self._on_preview)
@@ -195,11 +202,21 @@ class LabelsPage(QWidget):
         lay.addStretch()
 
     def _active_routes(self) -> list[dict]:
+        """Маршруты для выбранного типа (Основной/Довоз)."""
+        file_type = self.combo_type.currentData() or "main"
+        app_type = self.app_state.get("fileType") or "main"
         routes = self.app_state.get("filteredRoutes") or self.app_state.get("routes") or []
+        if app_type != file_type or not routes:
+            blob = data_store.get_last_routes(file_type) or {}
+            routes = blob.get("filteredRoutes") or blob.get("routes") or []
         return [r for r in routes if not r.get("excluded")]
 
     def _has_routes(self) -> bool:
         return bool(self._active_routes())
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(50, self.refresh)
 
     def refresh(self) -> None:
         has = self._has_routes()
@@ -211,6 +228,8 @@ class LabelsPage(QWidget):
         idx_type = self.combo_type.findData(current_type)
         self.combo_type.setCurrentIndex(idx_type if idx_type >= 0 else 0)
         self._fill_depts()
+        if self.combo_dept.count():
+            self._on_dept_changed()
 
     def _fill_depts(self) -> None:
         self.combo_dept.blockSignals(True)
@@ -231,16 +250,19 @@ class LabelsPage(QWidget):
             self.products_list.clear()
             self._update_selected_label()
 
+    def _on_type_changed(self) -> None:
+        """При смене типа (Основной/Довоз) обновляем список продуктов."""
+        self._on_dept_changed()
+
     def _on_dept_changed(self) -> None:
         self.products_list.clear()
         dept_key = self.combo_dept.currentData()
         if not dept_key:
             self._update_selected_label()
             return
-        for p in _products_for_dept(str(dept_key)):
-            has_tpl = bool(p.get("template") and os.path.isfile(p["template"]))
-            text = f"{'✓' if has_tpl else '✗'}  {p['name']}"
-            item = QListWidgetItem(text)
+        routes = self._active_routes()
+        for p in _products_for_dept(str(dept_key), routes):
+            item = QListWidgetItem(p["name"])
             item.setData(Qt.ItemDataRole.UserRole, p)
             self.products_list.addItem(item)
         if self.products_list.count():
@@ -252,7 +274,7 @@ class LabelsPage(QWidget):
 
     def _on_product_double_clicked(self, item: QListWidgetItem) -> None:
         p = item.data(Qt.ItemDataRole.UserRole) or None
-        if not p or not (p.get("template") or "").strip() or not os.path.isfile(p.get("template", "")):
+        if not p:
             return
         routes = self._active_routes()
         if not routes:
@@ -278,17 +300,12 @@ class LabelsPage(QWidget):
     def _update_selected_label(self) -> None:
         p = self._selected_product()
         has_selection = p is not None
-        self.btn_assign_tpl.setEnabled(has_selection)
         self.btn_preview.setEnabled(has_selection)
         self.btn_print.setEnabled(has_selection)
         if not p:
             self.lbl_selected.setText("Выберите продукт.")
             return
-        tpl = p.get("template") or ""
-        if tpl and os.path.isfile(tpl):
-            self.lbl_selected.setText(f"Продукт: {p['name']}. Шаблон: {os.path.basename(tpl)}")
-        else:
-            self.lbl_selected.setText(f"Продукт: {p['name']}. Шаблон не назначен.")
+        self.lbl_selected.setText(f"Продукт: {p['name']}. Файл: 3 столбца (№ маршрута, Дом, Количество).")
 
     def _open_labels_settings(self) -> None:
         try:
@@ -300,26 +317,6 @@ class LabelsPage(QWidget):
             import logging
             logging.getLogger("app").exception("labels_settings")
 
-    def _on_assign_template(self) -> None:
-        p = self._selected_product()
-        if not p:
-            return
-        base_dir = self.app_state.get("saveDir") or data_store.get_desktop_path()
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            f"Шаблон для продукта «{p['name']}»",
-            base_dir,
-            "Excel 97-2003 (*.xls);;Все файлы (*)",
-        )
-        if not path:
-            return
-        path = os.path.normpath(path)
-        if not path.lower().endswith(".xls"):
-            QMessageBox.warning(self, "Формат файла", "Поддерживается только шаблон .xls.")
-            return
-        data_store.update_product(p["name"], labelTemplatePath=path)
-        self._on_dept_changed()
-
     def _build_preview_dialog(self) -> LabelsPrintPreviewDialog | None:
         routes = self._active_routes()
         if not routes:
@@ -328,10 +325,6 @@ class LabelsPage(QWidget):
         p = self._selected_product()
         if not p:
             QMessageBox.warning(self, "Нет продукта", "Сначала выберите продукт.")
-            return None
-        tpl = p.get("template") or ""
-        if not tpl or not os.path.isfile(tpl):
-            QMessageBox.warning(self, "Нет шаблона", "Сначала добавьте шаблон .xls для продукта.")
             return None
         return LabelsPrintPreviewDialog(
             self,
@@ -344,12 +337,26 @@ class LabelsPage(QWidget):
         )
 
     def _on_preview(self) -> None:
-        dlg = self._build_preview_dialog()
-        if dlg is not None:
-            dlg.exec()
+        try:
+            dlg = self._build_preview_dialog()
+            if dlg is not None:
+                dlg.exec()
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Ошибка предпросмотра",
+                f"Не удалось открыть предпросмотр этикеток:\n\n{exc}",
+            )
 
     def _on_print(self) -> None:
-        dlg = self._build_preview_dialog()
-        if dlg is None:
-            return
-        dlg.exec()
+        try:
+            dlg = self._build_preview_dialog()
+            if dlg is None:
+                return
+            dlg.exec()
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Ошибка печати",
+                f"Не удалось открыть диалог печати:\n\n{exc}",
+            )

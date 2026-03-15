@@ -17,9 +17,10 @@ from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
     QGroupBox, QLineEdit, QComboBox, QScrollArea, QFrame,
-    QTabWidget, QMenu, QWidgetAction,
+    QTabWidget, QMenu, QWidgetAction, QInputDialog, QStyle,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QShortcut, QKeySequence
 
 from core import data_store
 from ui.widgets import hint_icon_button
@@ -50,22 +51,21 @@ class ProductsDialog(QDialog):
         title_row.addWidget(QLabel("Справочник продуктов"))
         title_row.addWidget(hint_icon_button(
             self,
-            "Единая таблица с вкладками. Алиасы: вариант (каноническое).",
+            "Вкладки: Все, Без отдела. Алиасы связывают вариант написания с каноническим названием.",
             "Инструкция — Справочник продуктов\n\n"
-            "1. Вкладки: «Все», «Без отдела», «По отделам».\n"
-            "2. Для продуктов без отдела: [В отдел] — привязка к отделу, [Связать с ▼] — создать алиас.\n"
-            "3. Таблица алиасов внизу: вариант (каноническое). Кнопка «✕» удаляет связку.\n"
-            "4. Кнопка «✕» в строке — удаление продукта из справочника.\n"
-            "Настройки количества в штуках — в меню «Настройки» → «Настройки Количества».",
+            "1. Вкладки: «Все», «Без отдела».\n"
+            "2. Для продуктов без отдела: «В отдел» — привязка к отделу, «Связать с» — создать алиас (вариант → каноническое).\n"
+            "3. Таблица алиасов внизу: вариант написания (каноническое). Кнопка удаления — удаляет связку.\n"
+            "4. Значок корзины в строке — удаление продукта из справочника.\n"
+            "5. Настройки количества в штуках — меню «Настройки» → «Настройки Количества».",
             "Инструкция",
         ))
         title_row.addStretch()
         lay.addLayout(title_row)
 
         hint = QLabel(
-            "Единая таблица: вкладки «Все», «Без отдела», «По отделам». "
-            "Для продуктов без отдела — кнопки «В отдел» и «Связать с» (создать алиас). "
-            "Таблица алиасов внизу: вариант (каноническое); кнопка ✕ удаляет связку."
+            "Вкладки «Все», «Без отдела». Для продуктов без отдела — «В отдел» (привязка) и «Связать с» (алиас). "
+            "Таблица алиасов внизу: вариант написания → каноническое название."
         )
         hint.setWordWrap(True)
         hint.setObjectName("hintLabel")
@@ -87,18 +87,21 @@ class ProductsDialog(QDialog):
         self.combo_dept_filter.currentIndexChanged.connect(self._apply_filters)
         filter_row.addWidget(self.combo_dept_filter)
         filter_row.addStretch()
+        btn_add = QPushButton("+ Добавить продукт")
+        btn_add.setObjectName("btnPrimary")
+        btn_add.clicked.connect(self._on_add_product)
+        filter_row.addWidget(btn_add)
         lay.addLayout(filter_row)
 
-        # Единая таблица с вкладками (2A)
+        # Единая таблица с вкладками
         self.tab_widget = QTabWidget()
-        for _ in range(3):
+        for _ in range(2):
             tab = QWidget()
             tab.setLayout(QVBoxLayout())
             tab.layout().setContentsMargins(0, 0, 0, 0)
             self.tab_widget.addTab(tab, "")
         self.tab_widget.setTabText(0, "Все")
         self.tab_widget.setTabText(1, "Без отдела")
-        self.tab_widget.setTabText(2, "По отделам")
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
 
         self.products_table = QTableWidget(0, 4)
@@ -112,6 +115,7 @@ class ProductsDialog(QDialog):
         self.products_table.setAlternatingRowColors(True)
         self.products_table.setMinimumHeight(400)
         self.products_table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+        self.products_table.verticalHeader().setDefaultSectionSize(48)
 
         self.tab_widget.widget(0).layout().addWidget(self.products_table)
         lay.addWidget(self.tab_widget)
@@ -137,10 +141,16 @@ class ProductsDialog(QDialog):
 
         lay.addWidget(alias_box)
 
-        btn_close = QPushButton("Закрыть")
-        btn_close.setObjectName("btnSecondary")
-        btn_close.clicked.connect(self._on_close_clicked)
-        lay.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignRight)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_save = QPushButton("Сохранить")
+        btn_save.setObjectName("btnPrimary")
+        btn_save.setDefault(True)
+        btn_save.setAutoDefault(True)
+        btn_save.clicked.connect(self._on_close_clicked)
+        btn_row.addWidget(btn_save)
+        lay.addLayout(btn_row)
+        QShortcut(QKeySequence(Qt.Key.Key_Return), self, self._on_close_clicked)
 
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
@@ -188,9 +198,11 @@ class ProductsDialog(QDialog):
             self.alias_table.insertRow(row)
             self.alias_table.setItem(row, 0, QTableWidgetItem(f"{variant} ({canonical})"))
 
-            btn_del = QPushButton("✕")
+            icon_del = self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+            btn_del = QPushButton(icon_del, "")
             btn_del.setObjectName("btnIconDanger")
             btn_del.setFixedSize(36, 28)
+            btn_del.setToolTip("Удалить связку")
             btn_del.clicked.connect(lambda _, v=variant: self._on_remove_alias(v))
             self.alias_table.setCellWidget(row, 1, btn_del)
 
@@ -216,10 +228,8 @@ class ProductsDialog(QDialog):
 
         if tab_idx == 0:
             rows_data = new_filtered + canonical_filtered
-        elif tab_idx == 1:
-            rows_data = new_filtered
         else:
-            rows_data = canonical_filtered
+            rows_data = new_filtered
 
         rows_data.sort(key=lambda p: p["name"].lower())
 
@@ -275,9 +285,11 @@ class ProductsDialog(QDialog):
                 combo_link.setMinimumWidth(140)
                 actions_lay.addWidget(combo_link)
 
-            btn_del = QPushButton("✕")
+            icon_del = self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+            btn_del = QPushButton(icon_del, "")
             btn_del.setObjectName("btnIconDanger")
-            btn_del.setFixedSize(36, 28)
+            btn_del.setFixedSize(36, 32)
+            btn_del.setToolTip("Удалить продукт из справочника")
             btn_del.clicked.connect(lambda _, n=name: self._on_delete_product(n))
             actions_lay.addWidget(btn_del)
 
@@ -287,6 +299,47 @@ class ProductsDialog(QDialog):
         self.products_table.setUpdatesEnabled(True)
 
     # ─────────────────────────── Действия ─────────────────────────────────
+
+    def _on_add_product(self):
+        """Добавить продукт вручную в справочник."""
+        name, ok = QInputDialog.getText(
+            self, "Добавить продукт", "Название продукта:",
+            QLineEdit.EchoMode.Normal, ""
+        )
+        if not ok or not (name or "").strip():
+            return
+        name = name.strip()
+        if data_store.get_ref("products") and any(
+            p.get("name") == name for p in data_store.get_ref("products")
+        ):
+            QMessageBox.warning(
+                self, "Ошибка",
+                f"Продукт «{name}» уже есть в справочнике."
+            )
+            return
+        unit, ok_unit = QInputDialog.getText(
+            self, "Добавить продукт", "Единица измерения (кг, л, шт и т.д.):",
+            QLineEdit.EchoMode.Normal, "кг"
+        )
+        if not ok_unit:
+            return
+        unit = (unit or "").strip()
+        dept_choices = [(k, n) for k, n in data_store.get_department_choices() if k]
+        if dept_choices:
+            items = ["Без отдела"] + [n for _, n in dept_choices]
+            name_to_key = {n: k for k, n in dept_choices}
+            dept_name, ok_dept = QInputDialog.getItem(
+                self, "Добавить продукт", "Отдел (или «Без отдела»):",
+                items, 0, False
+            )
+            dept_key = "" if not ok_dept or dept_name == "Без отдела" else name_to_key.get(dept_name, "")
+        else:
+            dept_key = ""
+        if data_store.add_product(name, unit, dept_key or None):
+            self._refresh()
+            QMessageBox.information(self, "Готово", f"Продукт «{name}» добавлен в справочник.")
+        else:
+            QMessageBox.warning(self, "Ошибка", f"Не удалось добавить «{name}» (возможно, уже существует).")
 
     def _on_assign_dept(self, product_name: str, button: QPushButton):
         """Кнопка «В отдел» — меню выбора отдела."""

@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QFormLayout, QSpinBox, QDoubleSpinBox, QGroupBox,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QShortcut, QKeySequence
 
 from core import data_store
 
@@ -56,7 +57,10 @@ class FileCreationSettingsDialog(QDialog):
         form.addRow("Отступ справа:", self.spin_right)
 
         lay.addWidget(gr)
-        hint = QLabel("Эти настройки применяются к файлам маршрутов (общие и по отделам). Этикетки не изменяются.")
+        hint = QLabel(
+            "Настройки применяются к файлам маршрутов (общие и по отделам). "
+            "Размер шрифта и отступы страницы. Этикетки не изменяются."
+        )
         hint.setWordWrap(True)
         hint.setObjectName("hintLabel")
         lay.addWidget(hint)
@@ -65,9 +69,12 @@ class FileCreationSettingsDialog(QDialog):
         btn_lay.addStretch()
         btn_ok = QPushButton("Сохранить")
         btn_ok.setObjectName("btnPrimary")
+        btn_ok.setDefault(True)
+        btn_ok.setAutoDefault(True)
         btn_ok.clicked.connect(self._save)
         btn_lay.addWidget(btn_ok)
         lay.addLayout(btn_lay)
+        QShortcut(QKeySequence(Qt.Key.Key_Return), self, self._save)
 
     def _save(self):
         data_store.set_setting("defaultFontSize", self.spin_font.value())

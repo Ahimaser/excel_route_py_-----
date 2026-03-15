@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QHeaderView, QMessageBox,
 )
 from PyQt6.QtCore import Qt, QMimeData
+from PyQt6.QtGui import QShortcut, QKeySequence
 
 from core import data_store, excel_generator
 
@@ -185,8 +186,8 @@ def open_label_template_editor(product_name: str, parent=None) -> bool:
 
     hint = QLabel(
         "Строка «Данные» — куда подставляются значения из маршрутов. "
-        "По умолчанию: № маршрута → столбец A, дом → B, количество → C. "
-        "Перетащите поля из левого списка в нужную ячейку, чтобы изменить расстановку. "
+        "По умолчанию: № маршрута → A, дом/строение → B, количество → C. "
+        "Перетащите поля из левого списка в нужную ячейку для изменения расстановки. "
         "Кнопка «По умолчанию» восстанавливает авто-расстановку."
     )
     hint.setWordWrap(True)
@@ -227,7 +228,7 @@ def open_label_template_editor(product_name: str, parent=None) -> bool:
     btn_row = QHBoxLayout()
     btn_reset = QPushButton("По умолчанию")
     btn_reset.setObjectName("btnSecondary")
-    btn_reset.setToolTip("Восстановить авто-расстановку: маршрут→A, дом→B, количество→C")
+    btn_reset.setToolTip("Восстановить авто-расстановку: № маршрута → A, дом/строение → B, количество → C")
     btn_reset.clicked.connect(lambda: table.set_placements(_default_layout(data_row)))
     btn_row.addWidget(btn_reset)
     btn_row.addStretch()
@@ -236,6 +237,8 @@ def open_label_template_editor(product_name: str, parent=None) -> bool:
     btn_cancel.clicked.connect(dlg.reject)
     btn_save = QPushButton("Сохранить расстановку")
     btn_save.setObjectName("btnPrimary")
+    btn_save.setDefault(True)
+    btn_save.setAutoDefault(True)
     def on_save():
         placements = table.get_placements()
         data_store.update_product(product_name, labelLayout=placements)
@@ -245,5 +248,6 @@ def open_label_template_editor(product_name: str, parent=None) -> bool:
     btn_row.addWidget(btn_cancel)
     btn_row.addWidget(btn_save)
     root.addLayout(btn_row)
+    QShortcut(QKeySequence(Qt.Key.Key_Return), dlg, on_save)
 
     return dlg.exec() == QDialog.DialogCode.Accepted

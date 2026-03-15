@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, Qt
+from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
+    QApplication,
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
@@ -16,9 +19,14 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QMessageBox,
     QInputDialog,
+    QScrollArea,
+    QFrame,
+    QSplitter,
 )
 
 from core import data_store, excel_generator
+
+log = logging.getLogger("labels_preview")
 
 
 class _PrepareWorker(QObject):
@@ -95,6 +103,103 @@ class _PrintWorker(QObject):
             self.error.emit(str(exc))
 
 
+class _ExportPdfWorker(QObject):
+    """Экспорт XLS в PDF для точного предпросмотра."""
+    finished = pyqtSignal(str)  # pdf_path
+    error = pyqtSignal(str)
+
+    def __init__(self, xls_path: str, output_pdf_path: str, margins: dict):
+        super().__init__()
+        self.xls_path = xls_path
+        self.output_pdf_path = output_pdf_path
+        self.margins = margins
+
+    def run(self) -> None:
+        try:
+            excel_generator.export_label_to_pdf(
+                self.xls_path,
+                self.output_pdf_path,
+                margins=self.margins,
+            )
+            self.finished.emit(self.output_pdf_path)
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
+def _pdf_first_page_to_pixmap(pdf_path: str, dpi: int = 150) -> QPixmap | None:
+    """Рендерит первую страницу PDF в QPixmap. Возвращает None при ошибке."""
+    if not pdf_path or not os.path.isfile(pdf_path):
+        log.warning("PDF файл не найден: %s", pdf_path)
+        return None
+    try:
+        import fitz
+        import tempfile
+        doc = fitz.open(pdf_path)
+        try:
+            if doc.page_count == 0:
+                log.warning("PDF пустой (0 страниц)")
+                return None
+            page = doc[0]
+            pix = page.get_pixmap(dpi=dpi, alpha=False)
+            if pix.width <= 0 or pix.height <= 0:
+                log.warning("Pixmap пустой: %dx%d", pix.width, pix.height)
+                return None
+            log.debug("PDF pixmap: %dx%d", pix.width, pix.height)
+            # Способ 1: save в temp PNG (наиболее надёжно для QImage)
+            fd, png_path = tempfile.mkstemp(suffix=".png")
+            try:
+                os.close(fd)
+                pix.save(png_path)
+                img = QImage(png_path)
+                if not img.isNull():
+                    result = QPixmap.fromImage(img)
+                    log.debug("Предпросмотр: загружен из temp PNG")
+                    return result
+            except Exception as e1:
+                log.debug("pix.save(png) не сработал: %s", e1)
+            finally:
+                if os.path.isfile(png_path):
+                    try:
+                        os.unlink(png_path)
+                    except Exception:
+                        pass
+            # Способ 2: tobytes PNG
+            for fn in [lambda: pix.tobytes("png"), lambda: pix.tobytes(output="png")]:
+                try:
+                    png_bytes = fn()
+                    img = QImage()
+                    if img.loadFromData(png_bytes):
+                        log.debug("Предпросмотр: загружен из tobytes PNG")
+                        return QPixmap.fromImage(img)
+                except Exception as e2:
+                    log.debug("tobytes PNG: %s", e2)
+            # Способ 3: Pillow
+            try:
+                png_bytes = pix.pil_tobytes(format="PNG")
+                img = QImage()
+                if img.loadFromData(png_bytes):
+                    log.debug("Предпросмотр: загружен через pil_tobytes")
+                    return QPixmap.fromImage(img)
+            except Exception as e3:
+                log.debug("pil_tobytes: %s", e3)
+            # Способ 4: raw RGB
+            samples = bytes(pix.samples) if not isinstance(pix.samples, bytes) else pix.samples
+            stride = pix.stride if pix.stride > 0 else pix.width * 3
+            img = QImage(samples, pix.width, pix.height, stride, QImage.Format.Format_RGB888)
+            if not img.isNull():
+                log.debug("Предпросмотр: raw RGB")
+                return QPixmap.fromImage(img.copy())
+            return None
+        finally:
+            doc.close()
+    except ImportError as e:
+        log.warning("PyMuPDF не установлен — точный предпросмотр недоступен: %s", e)
+        return None
+    except Exception as exc:
+        log.warning("Ошибка рендера PDF %s: %s", pdf_path, exc, exc_info=True)
+        return None
+
+
 class ProductLabelsTableDialog(QDialog):
     """Окно с таблицей этикеток продукта (при двойном клике)."""
 
@@ -162,7 +267,8 @@ class LabelsPrintPreviewDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle(f"Предпросмотр и печать: {product_name}")
-        self.setMinimumSize(720, 460)
+        self.setMinimumSize(800, 620)
+        self.resize(900, 720)
 
         self._routes = routes
         self._file_type = file_type
@@ -172,12 +278,18 @@ class LabelsPrintPreviewDialog(QDialog):
         self._dept_key = dept_key
         self._temp_dir: str | None = None
         self._xls_path: str | None = None
+        self._pdf_path: str | None = None
         self._preview_running = False
         self._threads: list[QThread] = []
+        self._closed = False
 
         self._build_ui()
         self._fill_preview_table()
         self._prepare_temp_file()
+
+    def closeEvent(self, event) -> None:
+        self._closed = True
+        super().closeEvent(event)
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)
@@ -187,6 +299,8 @@ class LabelsPrintPreviewDialog(QDialog):
         self.lbl_status = QLabel("Подготовка предпросмотра...")
         self.lbl_status.setObjectName("hintLabel")
         lay.addWidget(self.lbl_status)
+
+        splitter = QSplitter(Qt.Orientation.Vertical)
 
         self.table = QTableWidget()
         self.table.setColumnCount(5)
@@ -198,7 +312,30 @@ class LabelsPrintPreviewDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        lay.addWidget(self.table, 1)
+        self.table.setMinimumHeight(120)
+        splitter.addWidget(self.table)
+
+        preview_frame = QFrame()
+        preview_frame.setObjectName("card")
+        preview_lay = QVBoxLayout(preview_frame)
+        preview_lay.setContentsMargins(8, 8, 8, 8)
+        preview_lay.addWidget(QLabel("Точный предпросмотр этикетки (как при печати):"))
+        self.preview_scroll = QScrollArea()
+        self.preview_scroll.setWidgetResizable(True)
+        self.preview_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.preview_scroll.setMinimumHeight(200)
+        self.preview_lbl = QLabel()
+        self.preview_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_lbl.setMinimumSize(400, 200)
+        self.preview_lbl.setScaledContents(False)
+        self.preview_lbl.setText("Экспорт в PDF...")
+        self.preview_lbl.setObjectName("hintLabel")
+        self.preview_scroll.setWidget(self.preview_lbl)
+        preview_lay.addWidget(self.preview_scroll, 1)
+        splitter.addWidget(preview_frame)
+
+        splitter.setSizes([280, 400])
+        lay.addWidget(splitter, 1)
 
         printer_row = QHBoxLayout()
         printer_row.addWidget(QLabel("Принтер:"))
@@ -287,14 +424,77 @@ class LabelsPrintPreviewDialog(QDialog):
         thread.start()
 
     def _on_prepare_done(self, xls_path: str, temp_dir: str) -> None:
+        if self._closed:
+            return
         self._xls_path = xls_path
         self._temp_dir = temp_dir
-        self.lbl_status.setText("Файл для preview/печати готов.")
+        self.lbl_status.setText("Файл готов. Экспорт в PDF для предпросмотра...")
         self.btn_open_preview.setEnabled(True)
         self.btn_print.setEnabled(True)
+        self._start_export_pdf()
+
+    def _start_export_pdf(self) -> None:
+        if not self._xls_path or not self._temp_dir:
+            return
+        pdf_path = os.path.join(self._temp_dir, "preview.pdf")
+        margins = dict(data_store.get_setting("labelsPrintMargins") or {})
+        if not margins:
+            margins = {"top_cm": 2.0, "right_cm": 2.0, "bottom_cm": 0.0, "left_cm": 0.0}
+        thread = QThread(self)
+        worker = _ExportPdfWorker(self._xls_path, pdf_path, margins)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_export_pdf_done)
+        worker.error.connect(self._on_export_pdf_error)
+        worker.finished.connect(thread.quit)
+        worker.error.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        self._threads.append(thread)
+        thread.start()
+
+    def _on_export_pdf_done(self, pdf_path: str) -> None:
+        if self._closed:
+            return
+        self._pdf_path = pdf_path
+        self.lbl_status.setText("Файл для preview/печати готов.")
+        log.info("PDF экспорт готов: %s", pdf_path)
+        try:
+            pix = _pdf_first_page_to_pixmap(pdf_path, dpi=150)
+        except Exception as exc:
+            log.warning("Ошибка рендера PDF: %s", exc, exc_info=True)
+            pix = None
+        if pix and not pix.isNull():
+            if pix.width() > 750:
+                pix = pix.scaledToWidth(750, Qt.TransformationMode.SmoothTransformation)
+            self.preview_lbl.setText("")
+            self.preview_lbl.setPixmap(pix)
+            self.preview_lbl.adjustSize()
+            self.preview_lbl.update()
+            log.info("Предпросмотр отображён: %dx%d", pix.width(), pix.height())
+        else:
+            err_hint = "Проверьте: 1) PyMuPDF установлен (pip install pymupdf), 2) PDF создан"
+            if pdf_path and os.path.isfile(pdf_path):
+                err_hint += f"\nPDF создан: {os.path.basename(pdf_path)} — ошибка рендера."
+            else:
+                err_hint += " — PDF не создан."
+            self.preview_lbl.setText(err_hint)
+            log.warning("Не удалось отобразить предпросмотр PDF: %s", pdf_path)
+
+    def _on_export_pdf_error(self, msg: str) -> None:
+        if self._closed:
+            return
+        self.lbl_status.setText("Файл для preview/печати готов.")
+        hint = f"Предпросмотр недоступен: {msg}"
+        hint += "\n\nДля экспорта в PDF требуется Microsoft Excel."
+        self.preview_lbl.setText(hint)
+        log.warning("Экспорт этикеток в PDF: %s", msg)
 
     def _on_prepare_error(self, msg: str) -> None:
+        if self._closed:
+            return
         self.lbl_status.setText("Ошибка подготовки предпросмотра.")
+        self.preview_lbl.setText(f"Не удалось подготовить файл этикеток:\n\n{msg}")
         QMessageBox.critical(self, "Ошибка", msg)
 
     def _on_choose_printer(self) -> None:

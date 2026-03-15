@@ -26,12 +26,37 @@ def _type_title(file_type: str) -> str:
     return "Основной" if file_type == "main" else "Увеличение"
 
 
+def _format_dt(iso_str: str) -> str:
+    """Форматирует ISO дату-время в DD.MM.YYYY HH:MM."""
+    if not iso_str:
+        return ""
+    s = str(iso_str).replace("T", " ")[:16]
+    parts = s.split(" ")
+    if len(parts) == 2:
+        ymd = parts[0].split("-")
+        if len(ymd) == 3:
+            return f"{ymd[2]}.{ymd[1]}.{ymd[0]} {parts[1][:5]}"
+    return s
+
+
 def _entry_text(entry: dict) -> str:
     count = entry.get("count", 0)
-    ts = str(entry.get("timestamp") or "").replace("T", " ")[:16]
+    date_str = entry.get("date") or (entry.get("timestamp") or "")[:10]
     typ = _type_title(entry.get("fileType", "main"))
     cat = entry.get("routeCategory") or "ШК"
-    return f"{ts} | {typ} | {cat} | маршрутов: {count}"
+    created = _format_dt(entry.get("createdAt") or entry.get("timestamp"))
+    modified = _format_dt(entry.get("modifiedAt") or entry.get("timestamp"))
+    if date_str:
+        parts = date_str.split("-")
+        if len(parts) == 3:
+            date_display = f"{parts[2]}.{parts[1]}.{parts[0]}"
+        else:
+            date_display = date_str
+    else:
+        date_display = created[:10] if created else ""
+    if created and modified and created != modified:
+        return f"{date_display} | {typ} | Созд. {created} / Изм. {modified} | {cat} | {count} марш."
+    return f"{date_display} | {typ} | {cat} | маршрутов: {count}"
 
 
 class RoutesHistoryDialog(QDialog):
@@ -191,11 +216,18 @@ class RoutesHistoryDialog(QDialog):
         hist, idx = res
         entry = hist[idx]
         self._selected = entry
-        self.lbl_meta.setText(
-            f"Тип: {_type_title(entry.get('fileType', 'main'))}. "
-            f"Категория: {entry.get('routeCategory') or 'ШК'}. "
-            f"Маршрутов: {entry.get('count', 0)}."
-        )
+        created = _format_dt(entry.get("createdAt") or entry.get("timestamp"))
+        modified = _format_dt(entry.get("modifiedAt") or entry.get("timestamp"))
+        meta_parts = [
+            f"Тип: {_type_title(entry.get('fileType', 'main'))}.",
+            f"Категория: {entry.get('routeCategory') or 'ШК'}.",
+            f"Маршрутов: {entry.get('count', 0)}.",
+        ]
+        if created:
+            meta_parts.append(f"Создано: {created}.")
+        if modified and modified != created:
+            meta_parts.append(f"Изменено: {modified}.")
+        self.lbl_meta.setText(" ".join(meta_parts))
         self.btn_open.setEnabled(True)
 
     def _accept_from_list(self, lst: QListWidget) -> None:
@@ -229,10 +261,12 @@ class RoutesHistoryDialog(QDialog):
         filename = entry.get("filename")
         if not filename:
             return
-        ts = str(entry.get("timestamp") or "").replace("T", " ")[:16]
+        date_display = _format_dt(entry.get("modifiedAt") or entry.get("timestamp"))
+        if not date_display:
+            date_display = entry.get("date", "")
         reply = QMessageBox.question(
             self, "Удалить запись",
-            f"Удалить сохранение от {ts}?",
+            f"Удалить сохранение от {date_display}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )

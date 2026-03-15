@@ -25,10 +25,13 @@ xls_parser.py — Парсер XLS файлов маршрутов.
 """
 from __future__ import annotations
 
+import logging
 import re
 import itertools
 import xlrd
 from typing import Any
+
+log = logging.getLogger("xls_parser")
 
 ROUTE_SIGN = "\u2116"  # №
 
@@ -240,7 +243,8 @@ def parse_files(
                 canonical = aliases.get(p["name"], p["name"])
                 if canonical not in all_unique:
                     all_unique[canonical] = p["unit"]
-        except Exception as e:
+        except (OSError, ValueError, KeyError, TypeError, xlrd.XLRDError) as e:
+            log.warning("Ошибка парсинга %s: %s", fp, e)
             errors.append(f"{fp}: {e}")
 
     return {

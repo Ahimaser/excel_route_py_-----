@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import tempfile
 import uuid
 from pathlib import Path
@@ -48,7 +49,7 @@ DEFAULTS: dict[str, Any] = {
     "templates": [
         {
             "id": "template1",
-            "name": "Шаблон 1 — Полный",
+            "name": "Стандартный",
             "columns": [
                 {"field": "routeNumber", "label": None, "merged": False},
                 {"field": "address",     "label": None, "merged": False},
@@ -132,7 +133,7 @@ def _get_data_path() -> Path:
 
 def _ensure_loaded() -> None:
     """Загружает данные из файла при первом обращении."""
-    global _data, _path
+    global _data, _path, _dirty
     if _data is not None:
         return
     _path = _get_data_path()
@@ -140,7 +141,8 @@ def _ensure_loaded() -> None:
         try:
             with open(_path, "r", encoding="utf-8") as f:
                 _data = json.load(f)
-        except Exception:
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning("Не удалось загрузить store.json: %s", e)
             _data = {}
     else:
         _data = {}
@@ -158,9 +160,47 @@ def _ensure_loaded() -> None:
                 tmpl["columns"] = [
                     {"field": c, "label": None, "merged": False} for c in cols
                 ]
+            # Если columns пустой, но есть grid — строим columns из grid
+            grid, merges = tmpl.get("grid"), tmpl.get("merges") or []
+            if grid and merges is not None:
+                cols_from_grid = _columns_from_grid(grid, merges)
+                meaningful = [c for c in cols_from_grid if c.get("field") or ((c.get("label") or "").strip())]
+                existing = tmpl.get("columns") or []
+                existing_meaningful = len([c for c in existing if c.get("field") or ((c.get("label") or "").strip())])
+                if not existing:
+                    tmpl["columns"] = cols_from_grid
+                    _dirty = True
+                elif len(meaningful) > existing_meaningful:
+                    tmpl["columns"] = cols_from_grid
+                    _dirty = True
+            # Миграция: лишние столбцы address → productQty (иначе дублируется адрес после ед. изм.)
+            cols = tmpl.get("columns") or []
+            address_count = sum(1 for c in cols if c.get("field") == "address")
+            if address_count > 1:
+                first = True
+                for c in cols:
+                    if c.get("field") == "address":
+                        if first:
+                            first = False
+                        else:
+                            c["field"] = "productQty"
+                            c["label"] = None
+                            c["merged"] = False
+                            c.pop("productName", None)
+                _dirty = True
             if "deptKeys" not in tmpl:
                 dk = tmpl.get("deptKey")
                 tmpl["deptKeys"] = [dk] if dk else []
+            if "forGeneral" not in tmpl:
+                tmpl["forGeneral"] = True
+            if "forDepartments" not in tmpl:
+                tmpl["forDepartments"] = True
+    # Миграция: шаблон «Стандартный» — для отделов без явной привязки
+    templates_list = _data.get("templates") or []
+    has_standard = any((t.get("name") or "").strip() == "Стандартный" for t in templates_list)
+    if not has_standard and templates_list:
+        templates_list[0]["name"] = "Стандартный"
+        _dirty = True
     if "product_aliases" not in _data:
         _data["product_aliases"] = {}
     if "last_main_routes" not in _data:
@@ -190,7 +230,6 @@ def _ensure_loaded() -> None:
             new_list = sorted(normalized)
             if new_list != old:
                 _data["settings"]["alwaysRoundUpInstitutions"] = new_list
-                global _dirty
                 _dirty = True
                 _flush()
     if "excludeRoundUpAddresses" not in _data["settings"]:
@@ -210,13 +249,27 @@ def _ensure_loaded() -> None:
         }
     if "labelsTempAutoCleanup" not in _data["settings"]:
         _data["settings"]["labelsTempAutoCleanup"] = True
+    if "productFileGroups" not in _data["settings"]:
+        _data["settings"]["productFileGroups"] = {}
+    # Миграция: переименование «ЧИЩЕНКА» → «Очищенные» (до проверки labelPrintMode) (до проверки labelPrintMode)
+    for dept in _data.get("departments", []):
+        for sub in dept.get("subdepts", []):
+            sub_name = sub.get("name") or ""
+            if sub_name.strip().upper() == "ЧИЩЕНКА":
+                sub["name"] = "Очищенные"
+                _dirty = True
     # Миграция: labelsFor, labelPrintMode, labelsEnabled для отделов/подотделов
     for dept in _data.get("departments", []):
         if dept.get("labelsFor") is None:
             dept["labelsFor"] = "both"
         if dept.get("labelPrintMode") is None:
             n = (dept.get("name") or "").lower()
-            dept["labelPrintMode"] = "chistchenka" if "чищенка" in n else "sypuchka" if "сыпучка" in n else "default"
+            dept["labelPrintMode"] = (
+                "chistchenka" if "очищенные" in n
+                else "sypuchka" if "сыпучка" in n
+                else "polufabricates" if "полуфаб" in n
+                else "default"
+            )
         if dept.get("labelsEnabled") is None:
             dept["labelsEnabled"] = True
         for sub in dept.get("subdepts", []):
@@ -224,9 +277,44 @@ def _ensure_loaded() -> None:
                 sub["labelsFor"] = "both"
             if sub.get("labelPrintMode") is None:
                 n = (sub.get("name") or "").lower()
-                sub["labelPrintMode"] = "chistchenka" if "чищенка" in n else "sypuchka" if "сыпучка" in n else "default"
+                sub["labelPrintMode"] = (
+                    "chistchenka" if "очищенные" in n
+                    else "sypuchka" if "сыпучка" in n
+                    else "polufabricates" if "полуфаб" in n
+                    else "default"
+                )
             if sub.get("labelsEnabled") is None:
                 sub["labelsEnabled"] = True
+    # Миграция: один отдел/подотдел — только один шаблон (убираем дубликаты deptKeys).
+    # «Последний побеждает»: при конфликте dept_key остаётся у шаблона, идущего позже в списке.
+    templates_list = _data.get("templates") or []
+    seen_dept_keys: set[str] = set()
+    for tmpl in reversed(templates_list):
+        dk = tmpl.get("deptKeys") or []
+        if not dk:
+            continue
+        new_dk = [k for k in dk if k not in seen_dept_keys]
+        seen_dept_keys.update(dk)
+        if new_dk != dk:
+            tmpl["deptKeys"] = new_dk
+            tmpl["deptKey"] = new_dk[0] if len(new_dk) == 1 else None
+            _dirty = True
+    if _dirty:
+        _flush()
+
+
+def _create_backup() -> None:
+    """Создаёт резервные копии store.json (до 2 штук: .bak1, .bak2)."""
+    if _path is None or not _path.exists():
+        return
+    try:
+        bak2 = _path.with_suffix(".json.bak2")
+        bak1 = _path.with_suffix(".json.bak1")
+        if bak1.exists():
+            shutil.copy2(bak1, bak2)
+        shutil.copy2(_path, bak1)
+    except OSError as e:
+        log.warning("Не удалось создать резервную копию store.json: %s", e)
 
 
 def _flush() -> None:
@@ -235,6 +323,7 @@ def _flush() -> None:
     if not _dirty or _data is None or _path is None:
         return
     try:
+        _create_backup()
         dir_ = _path.parent
         with tempfile.NamedTemporaryFile(
             "w", encoding="utf-8", dir=dir_, delete=False, suffix=".tmp"
@@ -244,7 +333,7 @@ def _flush() -> None:
         # Атомарная замена (работает на Windows и Linux)
         os.replace(tmp_path, _path)
         _dirty = False
-    except Exception as e:
+    except (OSError, json.JSONEncodeError) as e:
         log.error("Ошибка записи store: %s", e)
 
 
@@ -294,6 +383,7 @@ def update_product(name: str, **kwargs) -> bool:
     """
     Обновляет поля одного продукта по имени без перезаписи всего списка.
     Возвращает True если продукт найден и обновлён.
+    Конвертация «В Грязные» доступна только для подотдела Чищенка — при смене отдела сбрасывается.
     """
     global _dirty
     _ensure_loaded()
@@ -301,26 +391,11 @@ def update_product(name: str, **kwargs) -> bool:
     for p in products:
         if p.get("name") == name:
             p.update(kwargs)
-            _dirty = True
-            _flush()
-            return True
-    return False
-
-
-def set_product_label_template(name: str, template_path: str) -> bool:
-    """
-    Устанавливает путь к шаблону этикетки для продукта.
-    Возвращает True, если продукт найден и обновлён.
-    """
-    global _dirty
-    _ensure_loaded()
-    name = (name or "").strip()
-    if not name:
-        return False
-    products: list = _data.get("products", [])
-    for p in products:
-        if p.get("name") == name:
-            p["labelTemplatePath"] = template_path
+            if "deptKey" in kwargs and not is_subdept_chistchenka(kwargs.get("deptKey")):
+                if p.get("showInDirty"):
+                    p["showInDirty"] = False
+                    if p.get("quantityMultiplier") == 1.25:
+                        p["quantityMultiplier"] = None
             _dirty = True
             _flush()
             return True
@@ -343,20 +418,6 @@ def set_setting(key: str, value: Any) -> None:
     _data["settings"] = settings
     _dirty = True
     _flush()
-
-
-def set_labels_generated(dept_key: str) -> None:
-    """Сохраняет дату и время последней генерации этикеток для отдела."""
-    from datetime import datetime
-    ts = datetime.now().strftime("%d.%m.%Y %H:%M")
-    history = dict(get_setting("labelsLastGenerated") or {})
-    history[dept_key] = ts
-    set_setting("labelsLastGenerated", history)
-
-
-def get_labels_generated_map() -> dict[str, str]:
-    """Возвращает {dept_key: 'dd.mm.yyyy HH:MM'} для всех отделов."""
-    return dict(get_setting("labelsLastGenerated") or {})
 
 
 def get_desktop_path() -> str:
@@ -415,6 +476,29 @@ def remove_alias(variant: str) -> None:
         _flush()
 
 
+def add_product(name: str, unit: str = "", dept_key: str | None = None) -> bool:
+    """
+    Добавляет продукт в справочник вручную.
+    Возвращает True, если добавлен; False, если продукт с таким именем уже есть.
+    """
+    global _dirty
+    _ensure_loaded()
+    name = (name or "").strip()
+    if not name:
+        return False
+    products: list = _data.get("products", [])
+    if any(p.get("name") == name for p in products):
+        return False
+    products.append({
+        "name": name,
+        "unit": (unit or "").strip(),
+        "deptKey": dept_key if dept_key else None,
+    })
+    _dirty = True
+    _flush()
+    return True
+
+
 def remove_product(name: str) -> bool:
     """
     Удаляет продукт из справочника по имени и все связанные алиасы
@@ -451,7 +535,7 @@ def resolve_product_name(name: str) -> str:
 
 # Сетка редактора шаблона: 6 строк (3 — заголовки, 3 — данные), 8 столбцов
 GRID_ROWS = 6
-GRID_COLS = 8
+GRID_COLS = 6  # уменьшено с 8 до 6
 
 FIELD_LABELS: dict[str, str] = {
     "routeNumber":  "№ маршрута",
@@ -464,6 +548,20 @@ FIELD_LABELS: dict[str, str] = {
     "productsWide": "Продукт (колонка на каждый)",
     "nomenclature": "Номенклатура",
 }
+
+
+def get_template_columns(tmpl: dict) -> list[dict]:
+    """
+    Возвращает список столбцов шаблона. Если columns пустой, но есть grid — строит из grid.
+    """
+    cols = tmpl.get("columns", [])
+    if cols:
+        return cols
+    grid = tmpl.get("grid")
+    merges = tmpl.get("merges") or []
+    if grid and len(grid) > 0:
+        return _columns_from_grid(grid, merges)
+    return []
 
 
 def get_department_choices() -> list[tuple[str, str]]:
@@ -483,25 +581,6 @@ def get_department_choices() -> list[tuple[str, str]]:
     return result
 
 
-def get_department_products_map() -> dict[str, list[str]]:
-    """
-    Словарь {ключ отдела: [названия продуктов]}.
-    Только продукты с привязкой к отделу (deptKey).
-    """
-    _ensure_loaded()
-    result: dict[str, list[str]] = {}
-    products = _data.get("products", [])
-    for p in products:
-        name = p.get("name")
-        dept_key = p.get("deptKey")
-        if not name or not dept_key:
-            continue
-        result.setdefault(dept_key, []).append(name)
-    for key in result:
-        result[key].sort(key=str.lower)
-    return result
-
-
 def get_department_display_name(dept_key: str) -> str:
     """Возвращает отображаемое имя отдела/подотдела по ключу."""
     _ensure_loaded()
@@ -516,8 +595,8 @@ def get_department_display_name(dept_key: str) -> str:
 
 def is_subdept_chistchenka(dept_key: str | None) -> bool:
     """
-    True, если dept_key — подотдел «Чищенка» (по имени или labelPrintMode).
-    Конвертация «В Грязные» доступна только для таких подотделов.
+    True, если dept_key — подотдел «Очищенные» (по имени или labelPrintMode).
+    Конвертация «В Грязные» доступна только для такого подотдела.
     """
     if not dept_key:
         return False
@@ -529,7 +608,33 @@ def is_subdept_chistchenka(dept_key: str | None) -> bool:
                 if mode == "chistchenka":
                     return True
                 name = (sub.get("name") or "").lower()
-                return "чищенка" in name
+                return "очищенные" in name
+    return False
+
+
+def is_subdept_polufabricates(dept_key: str | None) -> bool:
+    """
+    True, если dept_key — подотдел «Полуфабрикаты» (по имени или labelPrintMode).
+    Используется для расчёта хвостиков (pcsTail) при отображении шт.
+    """
+    if not dept_key:
+        return False
+    _ensure_loaded()
+    for dept in _data.get("departments", []):
+        for sub in dept.get("subdepts", []):
+            if sub.get("key") == dept_key:
+                mode = sub.get("labelPrintMode")
+                if mode in ("polufabricates", "polufabrikaty"):
+                    return True
+                name = (sub.get("name") or "").lower()
+                return "полуфаб" in name
+        # Проверяем и отдел (полуфабрикаты может быть отделом, а не подотделом)
+        if dept.get("key") == dept_key:
+            mode = dept.get("labelPrintMode")
+            if mode in ("polufabricates", "polufabrikaty"):
+                return True
+            name = (dept.get("name") or "").lower()
+            return "полуфаб" in name
     return False
 
 
@@ -554,38 +659,52 @@ def _columns_from_grid(grid: list, merges: list) -> list:
     """
     Строит список столбцов (для экспорта) из сетки и объединений.
     merges: список (r, c, rowSpan, colSpan) — верхний левый угол и размер.
+    Строка 0 может быть заголовком (объединённая) — тогда берём строку 1 для столбцов.
     """
     if not grid or len(grid) == 0:
         return []
     num_cols = len(grid[0]) if grid[0] else 0
-    cols = []
-    for c in range(num_cols):
-        # Пропускаем ячейки, входящие в объединение слева
-        is_covered = False
-        for (r0, c0, rs, cs) in merges:
-            if r0 == 0 and c0 < c < c0 + cs:
-                is_covered = True
-                break
-        if is_covered:
-            continue
-        cell = grid[0][c] if c < len(grid[0]) else {"text": "", "field": None}
-        row_span, col_span = 1, 1
-        for (r0, c0, rs, cs) in merges:
-            if r0 == 0 and c0 == c:
-                row_span, col_span = rs, cs
-                break
-        label = (cell.get("text") or "").strip() or None
-        field = cell.get("field")
-        if not field and label:
-            # Пытаемся сопоставить с известным полем по подписи
-            for fk, fv in FIELD_LABELS.items():
-                if fv == label:
-                    field = fk
+    if num_cols == 0:
+        return []
+
+    def _extract_cols_from_row(row_idx: int) -> list[dict]:
+        out = []
+        for c in range(num_cols):
+            is_covered = False
+            for (r0, c0, rs, cs) in merges:
+                if r0 == row_idx and c0 < c < c0 + cs:
+                    is_covered = True
                     break
-        col = {"field": field or "address", "label": label, "merged": col_span > 1}
-        if col_span > 1 and label:
-            col["productName"] = label
-        cols.append(col)
+            if is_covered:
+                continue
+            cell = grid[row_idx][c] if c < len(grid[row_idx]) else {"text": "", "field": None}
+            col_span = 1
+            for (r0, c0, rs, cs) in merges:
+                if r0 == row_idx and c0 == c:
+                    col_span = cs
+                    break
+            label = (cell.get("text") or "").strip() or None
+            field = cell.get("field")
+            if not field and label:
+                for fk, fv in FIELD_LABELS.items():
+                    if fv == label:
+                        field = fk
+                        break
+            # Пустые ячейки — productQty без productName (записывается ""), не address (иначе дублируется адрес)
+            col = {"field": field or "productQty", "label": label, "merged": col_span > 1}
+            if col_span > 1 and label:
+                col["productName"] = label
+            out.append(col)
+        return out
+
+    # Строка 0 полностью объединена (заголовок) — столбцы в строке 1
+    row0_merged = any(r0 == 0 and c0 == 0 and cs >= num_cols for (r0, c0, rs, cs) in merges)
+    cols = _extract_cols_from_row(1) if row0_merged and len(grid) > 1 else _extract_cols_from_row(0)
+    # Fallback: если строка 1 пустая (шаблон из columns), пробуем строку 0
+    if len(cols) < 2 and row0_merged and len(grid) > 0:
+        cols0 = _extract_cols_from_row(0)
+        if len(cols0) > len(cols):
+            cols = cols0
     return cols if cols else [
         {"field": "routeNumber", "label": None, "merged": False},
         {"field": "address", "label": None, "merged": False},
@@ -609,7 +728,8 @@ def create_template(name: str) -> dict:
         ],
         "deptKey": None,
         "deptKeys": [],
-        "format": "",
+        "forGeneral": True,
+        "forDepartments": True,
         "grid": _default_grid(),
         "merges": [],
         "gridRows": GRID_ROWS,
@@ -647,33 +767,53 @@ def save_template(
     columns: list,
     dept_key=None,
     dept_keys: list | None = None,
-    fmt: str = "",
     grid: list | None = None,
     merges: list | None = None,
     grid_rows: int | None = None,
     grid_cols: int | None = None,
     title_row: dict | None = None,
+    for_general: bool = True,
+    for_departments: bool = True,
 ) -> bool:
-    """Обновляет шаблон: имя, столбцы, отделы, формат, сетка, размер, заголовок.
+    """Обновляет шаблон: имя, столбцы, отделы, сетка, размер, заголовок, область применения.
     dept_keys: список ключей отделов/подотделов (пустой = шаблон по умолчанию).
-    dept_key: устаревший параметр, используется если dept_keys не передан."""
+    for_general: применять к общим маршрутам; for_departments: к маршрутам по отделам."""
     global _dirty
     _ensure_loaded()
     if dept_keys is None:
         dept_keys = [dept_key] if dept_key else []
+    dept_keys = list(dept_keys)
     templates: list = _data.get("templates", [])
     for t in templates:
         if t["id"] == template_id:
+            # Один отдел/подотдел — только один шаблон: убираем dept_keys из всех других шаблонов
+            if dept_keys:
+                for other in templates:
+                    if other["id"] != template_id:
+                        dk = other.get("deptKeys") or []
+                        if dk:
+                            other["deptKeys"] = [k for k in dk if k not in dept_keys]
+                            other["deptKey"] = other["deptKeys"][0] if len(other["deptKeys"]) == 1 else None
+                            _dirty = True
             t["name"] = name
             if grid is not None and merges is not None:
                 t["grid"] = grid
                 t["merges"] = merges
-                t["columns"] = _columns_from_grid(grid, merges)
+                cols_from_grid = _columns_from_grid(grid, merges)
+                meaningful = [c for c in cols_from_grid if c.get("field") or ((c.get("label") or "").strip())]
+                existing = t.get("columns") or []
+                if len(meaningful) >= 2:
+                    t["columns"] = cols_from_grid
+                elif existing and len(existing) >= 2:
+                    t["columns"] = existing
+                else:
+                    t["columns"] = cols_from_grid
             else:
                 t["columns"] = columns
             t["deptKeys"] = list(dept_keys)
             t["deptKey"] = dept_keys[0] if len(dept_keys) == 1 else None  # обратная совместимость
-            t["format"] = fmt
+            t["forGeneral"] = for_general
+            t["forDepartments"] = for_departments
             if grid_rows is not None:
                 t["gridRows"] = grid_rows
             if grid_cols is not None:
@@ -740,6 +880,78 @@ def get_institution_addresses_map(routes: Iterable[dict]) -> dict[str, list[str]
     return result
 
 
+def build_dept_groups_from_routes(routes: Iterable[dict]) -> list[dict]:
+    """
+    Строит список групп {key, name, routes} для каждого отдела/подотдела.
+    Используется при генерации файлов по отделам с учётом замен продуктов.
+    """
+    routes = list(routes or [])
+    depts = get_ref("departments") or []
+    products = get_ref("products") or []
+
+    prod_by_dept: dict[str, list[str]] = {}
+    for p in products:
+        k = p.get("deptKey")
+        if k:
+            prod_by_dept.setdefault(k, []).append(p["name"])
+
+    def _aggregate_products(prods: list[dict]) -> list[dict]:
+        by_name: dict[str, dict] = {}
+        for p in prods:
+            name = p.get("name", "")
+            if not name:
+                continue
+            if name in by_name:
+                agg = by_name[name]
+                try:
+                    agg["quantity"] = float(agg.get("quantity") or 0) + float(p.get("quantity") or 0)
+                except (ValueError, TypeError):
+                    pass
+            else:
+                by_name[name] = dict(p)
+        return list(by_name.values())
+
+    def _collect_routes(dept_key: str) -> list[dict]:
+        prod_names = set(prod_by_dept.get(dept_key, []))
+        if not prod_names:
+            return []
+        result = []
+        for r in routes:
+            if r.get("excluded"):
+                continue
+            dept_prods = [p for p in r.get("products", []) if p["name"] in prod_names]
+            if dept_prods:
+                result.append({
+                    "routeNum": r.get("routeNum", ""),
+                    "address": r.get("address", ""),
+                    "routeCategory": r.get("routeCategory") or "ШК",
+                    "products": _aggregate_products(dept_prods),
+                })
+        return result
+
+    groups: list[dict] = []
+    for dept in depts:
+        for sub in dept.get("subdepts", []):
+            sub_routes = _collect_routes(sub["key"])
+            if sub_routes:
+                groups.append({
+                    "key": sub["key"],
+                    "name": sub["name"],
+                    "is_subdept": True,
+                    "parent_dept_name": dept.get("name") or dept.get("key", ""),
+                    "routes": sub_routes,
+                })
+        dept_routes = _collect_routes(dept["key"])
+        if dept_routes:
+            groups.append({
+                "key": dept["key"],
+                "name": dept["name"],
+                "is_subdept": False,
+                "routes": dept_routes,
+            })
+    return groups
+
+
 def get_round_up_percent_for_dept(dept_key: str | None) -> float:
     """
     % от 1 шт для округления по учреждениям.
@@ -789,7 +1001,7 @@ def _read_history_index() -> list[dict]:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         return list(data) if isinstance(data, list) else []
-    except Exception as e:
+    except (json.JSONDecodeError, OSError) as e:
         log.warning("Ошибка чтения индекса истории: %s", e)
         return []
 
@@ -803,7 +1015,7 @@ def _write_history_index(entries: list[dict]) -> None:
             json.dump(entries, tf, ensure_ascii=False, indent=2)
             tmp_path = tf.name
         os.replace(tmp_path, path)
-    except Exception as e:
+    except (OSError, json.JSONEncodeError) as e:
         log.error("Ошибка записи индекса истории: %s", e)
 
 
@@ -853,8 +1065,9 @@ def save_last_routes(
     unique_products: list,
     filtered_routes: list,
     route_category: str | None = None,
+    save_dir: str | None = None,
 ) -> None:
-    """Сохраняет данные маршрутов как последние (main или increase). route_category: ШК или СД."""
+    """Сохраняет данные маршрутов как последние (main или increase). route_category: ШК или СД. save_dir — папка сохранения (для истории)."""
     global _dirty
     _ensure_loaded()
     from datetime import datetime
@@ -866,17 +1079,44 @@ def save_last_routes(
     }
     if route_category:
         blob["routeCategory"] = route_category
+    if save_dir:
+        blob["saveDir"] = save_dir
     key = "last_main_routes" if file_type == "main" else "last_increase_routes"
     _data[key] = blob
     _dirty = True
     _flush()
 
-    # Гибрид: запись в папку history/
-    entry_full = {"fileType": file_type, **copy.deepcopy(blob)}
-    ts = blob["timestamp"][:19].replace(":", "-").replace("T", "_")
-    fname = f"entry_{ts}_{file_type}.json"
+    # Гибрид: один файл на день на тип — обновление вместо дублирования
+    now = datetime.now()
+    date_str = now.strftime("%Y-%m-%d")
+    now_iso = now.isoformat()
+    fname = f"entry_{date_str}_{file_type}.json"
     hist_dir = _get_history_dir()
     fpath = hist_dir / fname
+
+    # Если файл за сегодня уже есть — берём createdAt, обновляем modifiedAt
+    created_at = now_iso
+    if fpath.exists():
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            created_at = existing.get("createdAt") or existing.get("timestamp") or now_iso
+        except Exception:
+            pass
+
+    entry_full = {
+        "fileType": file_type,
+        "date": date_str,
+        "createdAt": created_at,
+        "modifiedAt": now_iso,
+        "routes": copy.deepcopy(routes),
+        "uniqueProducts": copy.deepcopy(unique_products),
+        "filteredRoutes": copy.deepcopy(filtered_routes),
+    }
+    if route_category:
+        entry_full["routeCategory"] = route_category
+    if save_dir:
+        entry_full["saveDir"] = save_dir
     try:
         with open(fpath, "w", encoding="utf-8") as f:
             json.dump(entry_full, f, ensure_ascii=False, indent=2)
@@ -884,19 +1124,41 @@ def save_last_routes(
         log.error("Ошибка записи истории: %s", e)
         return
 
-    index_entries = _read_history_index()
+    # Удаляем старые файлы за этот же день (entry_*_type.json с датой в имени)
+    for f in hist_dir.glob("entry_*.json"):
+        if f.name == _INDEX_FILENAME or f.name == fname:
+            continue
+        if date_str in f.name and f.name.endswith(f"_{file_type}.json"):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+
     count = len(filtered_routes or routes or [])
-    index_entries.append({
-        "timestamp": blob["timestamp"],
+    index_entry = {
+        "date": date_str,
+        "createdAt": created_at,
+        "modifiedAt": now_iso,
         "fileType": file_type,
         "filename": fname,
         "routeCategory": route_category or "ШК",
         "count": count,
-    })
+    }
+
+    index_entries = _read_history_index()
+    # Обновляем или добавляем запись за этот день и тип
+    index_entries = [e for e in index_entries if not (
+        (e.get("date") == date_str or (e.get("timestamp") or "")[:10] == date_str)
+        and e.get("fileType") == file_type
+    )]
+    index_entries.append(index_entry)
 
     # Только текущий месяц
     current_month = _current_month_str()
-    index_entries = [e for e in index_entries if (e.get("timestamp") or "")[:7] == current_month]
+    def _entry_month(e):
+        d = e.get("date") or (e.get("timestamp") or "")[:10]
+        return d[:7] if d else ""
+    index_entries = [e for e in index_entries if _entry_month(e) == current_month]
     _write_history_index(index_entries)
 
     # Удаляем файлы записей из прошлых месяцев
@@ -936,32 +1198,91 @@ def clear_last_routes() -> None:
 
 def get_routes_history(file_type: str | None = None) -> list[dict]:
     """
-    Возвращает метаданные истории (новые сверху). Только за текущий месяц.
+    Возвращает метаданные истории (последние изменения сверху). Только за текущий месяц.
     file_type: "main" | "increase" | None (все).
-    Каждый элемент: {timestamp, fileType, filename, routeCategory, count}.
+    Каждый элемент: {date, createdAt, modifiedAt, fileType, filename, routeCategory, count}.
     """
     _ensure_loaded()
     index_entries = _read_history_index()
     current_month = _current_month_str()
-    index_entries = [e for e in index_entries if (e.get("timestamp") or "")[:7] == current_month]
+
+    def _entry_month(e):
+        d = e.get("date") or (e.get("timestamp") or "")[:10]
+        return d[:7] if d else ""
+
+    index_entries = [e for e in index_entries if _entry_month(e) == current_month]
     if file_type in ("main", "increase"):
         index_entries = [e for e in index_entries if e.get("fileType") == file_type]
-    index_entries.reverse()
+    # Сортировка по modifiedAt (или timestamp) — последние сверху
+    def _sort_key(e):
+        m = e.get("modifiedAt") or e.get("timestamp") or ""
+        return m
+    index_entries.sort(key=_sort_key, reverse=True)
     return index_entries
 
 
 def load_routes_history_entry(filename: str) -> dict | None:
-    """Загружает полную запись истории по имени файла."""
+    """Загружает полную запись истории по имени файла. Нормализует старый формат (timestamp → createdAt/modifiedAt)."""
     hist_dir = _get_history_dir()
     fpath = hist_dir / filename
     if not fpath.exists() or fpath.name == _INDEX_FILENAME:
         return None
     try:
         with open(fpath, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
+            data = json.load(f)
+        # Нормализация старого формата (только timestamp)
+        if "createdAt" not in data and data.get("timestamp"):
+            data["createdAt"] = data["timestamp"]
+            data["modifiedAt"] = data["timestamp"]
+            data["date"] = (data["timestamp"] or "")[:10]
+        return data
+    except (json.JSONDecodeError, OSError) as e:
         log.warning("Ошибка загрузки записи истории %s: %s", filename, e)
         return None
+
+
+def list_backups() -> list[tuple[int, str, float]]:
+    """
+    Возвращает список доступных резервных копий store.json.
+    Каждый элемент: (индекс 0/1, имя файла, mtime).
+    """
+    _ensure_loaded()
+    if _path is None:
+        return []
+    result: list[tuple[int, str, float]] = []
+    for i, suf in enumerate([".json.bak1", ".json.bak2"]):
+        p = _path.with_suffix(suf)
+        if p.exists():
+            try:
+                mtime = p.stat().st_mtime
+                result.append((i, p.name, mtime))
+            except OSError:
+                pass
+    return result
+
+
+def restore_from_backup(backup_index: int) -> bool:
+    """
+    Восстанавливает store.json из резервной копии (0 = bak1, 1 = bak2).
+    Возвращает True при успехе. После восстановления нужно перезапустить приложение.
+    """
+    _ensure_loaded()
+    if _path is None:
+        return False
+    suf = ".json.bak1" if backup_index == 0 else ".json.bak2"
+    src = _path.with_suffix(suf)
+    if not src.exists():
+        return False
+    try:
+        global _data, _dirty
+        with open(src, "r", encoding="utf-8") as f:
+            _data = json.load(f)
+        shutil.copy2(src, _path)
+        _dirty = False
+        return True
+    except (json.JSONDecodeError, OSError) as e:
+        log.error("Ошибка восстановления из резервной копии: %s", e)
+        return False
 
 
 def delete_routes_history_entry(filename: str) -> bool:

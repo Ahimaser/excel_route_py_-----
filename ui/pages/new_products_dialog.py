@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QComboBox, QHeaderView,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QShortcut, QKeySequence
 
 from ui.widgets import hint_icon_button
 
@@ -53,11 +54,11 @@ class NewProductsDialog(QDialog):
         title_row.addWidget(QLabel("Обнаружены названия, которых нет в справочнике. Выберите действие для каждого."))
         title_row.addWidget(hint_icon_button(
             self,
-            "«Новый продукт» — в справочник; «Дубликат» — вариант существующего.",
+            "«Новый продукт» — добавить в справочник; «Дубликат» — записать как вариант существующего продукта.",
             "Инструкция — Новые названия\n\n"
-            "1. В таблице перечислены названия из загруженного файла, которых нет в справочнике.\n"
-            "2. Для каждого выберите действие: «Новый продукт» — добавить в справочник (привязку к отделу сделаете в «Отделы и продукты»).\n"
-            "3. «Дубликат: [каноническое название]» — записать как вариант выбранного продукта; при следующих запусках это написание будет подставляться автоматически.\n"
+            "1. В таблице — названия из загруженного файла, которых нет в справочнике.\n"
+            "2. «Новый продукт» — добавить в справочник (привязку к отделу сделаете в «Отделы и продукты»).\n"
+            "3. «Дубликат: [каноническое]» — записать как вариант выбранного продукта; при следующих запусках это написание подставится автоматически.\n"
             "4. После выбора нажмите «Сохранить» — данные обновятся, можно продолжить обработку.",
             "Инструкция",
         ))
@@ -102,6 +103,8 @@ class NewProductsDialog(QDialog):
         btn_row.addStretch()
         ok_btn = QPushButton("Применить")
         ok_btn.setObjectName("btnPrimary")
+        ok_btn.setDefault(True)
+        ok_btn.setAutoDefault(True)
         ok_btn.clicked.connect(self.accept)
         cancel_btn = QPushButton("Отмена")
         cancel_btn.setObjectName("btnSecondary")
@@ -109,6 +112,7 @@ class NewProductsDialog(QDialog):
         btn_row.addWidget(ok_btn)
         btn_row.addWidget(cancel_btn)
         lay.addLayout(btn_row)
+        QShortcut(QKeySequence(Qt.Key.Key_Return), self, self.accept)
         if self._combos:
             self._combos[0].setFocus()
 

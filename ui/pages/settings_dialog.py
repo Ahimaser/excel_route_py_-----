@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QScrollArea, QFrame,
 )
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QShortcut, QKeySequence
 
 from core import data_store
 from ui.widgets import hint_icon_button, ToggleSwitch
@@ -77,8 +78,8 @@ class SettingsDialog(QDialog):
 
         lbl_hint = QLabel(
             "Настройки применяются ко всем продуктам с одинаковым названием. "
-            "Отображение Шт — только для продуктов с ед. изм. не «шт». "
-            "Коэфф. замены: отображаемое количество = количество × коэффициент (напр. 1,25 для очищенные → грязные)."
+            "Отображение в штуках доступно только для продуктов с единицей измерения, отличной от «шт». "
+            "Коэфф. замены: отображаемое количество = исходное × коэффициент (напр. 1,25 для очищенных → грязные)."
         )
         lbl_hint.setObjectName("stepLabel")
         lbl_hint.setWordWrap(True)
@@ -130,10 +131,13 @@ class SettingsDialog(QDialog):
         btn_save = QPushButton("Сохранить и закрыть")
         btn_save.setObjectName("btnPrimary")
         btn_save.setFixedHeight(36)
+        btn_save.setDefault(True)
+        btn_save.setAutoDefault(True)
         btn_save.clicked.connect(self.accept)
         btn_row.addWidget(btn_save)
 
         lay.addLayout(btn_row)
+        QShortcut(QKeySequence(Qt.Key.Key_Return), self, self.accept)
 
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)

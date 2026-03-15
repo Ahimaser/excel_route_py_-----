@@ -19,8 +19,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QKeySequence
+from PyQt6.QtWidgets import QMessageBox
 
 from core import data_store
+from core.constants import FILE_TYPE_MAIN, ROUTE_CATEGORY_SHK
 
 
 class MainWindow(QMainWindow):
@@ -32,21 +34,11 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Маршруты, Сборка")
-        self.setMinimumSize(1000, 620)
-        self.resize(1100, 700)
+        self.setMinimumSize(1100, 680)
+        self.resize(1200, 750)
 
-        # Состояние приложения (передаётся между страницами). Папка сохранения загружается из хранилища.
         save_dir = data_store.get_setting("defaultSaveDir")
-        self.app_state = {
-            "fileType": "main",       # "main" | "increase"
-            "filePaths": [],          # загруженные XLS файлы
-            "saveDir": save_dir,      # папка сохранения (из настроек для следующих запусков)
-            "routes": [],             # распарсенные маршруты
-            "uniqueProducts": [],     # уникальные продукты из файлов
-            "filteredRoutes": [],     # маршруты после фильтрации/исключения
-            "routeCategory": "ШК",    # "ШК" | "СД" для округления
-            "sortAsc": True,          # сортировка маршрутов по возрастанию
-        }
+        self.app_state = self._create_app_state(save_dir)
 
         self._build_ui()
         self._build_menu()
@@ -69,18 +61,27 @@ class MainWindow(QMainWindow):
 
         # Стек страниц
         self.stack = QStackedWidget()
-        self.stack.setMinimumSize(900, 500)
-        root_layout.addWidget(self.stack)
+        self.stack.setMinimumSize(950, 550)
+        root_layout.addWidget(self.stack, 1)
 
         # Строка состояния (как в Excel)
         self.statusBar().showMessage("Готово")
 
         # Колбэк для вывода сообщений в статус (страницы вызывают app_state["set_status"](msg))
         self.app_state["set_status"] = lambda msg, t=5000: self.statusBar().showMessage(msg, t)
+        # Колбэк для обновления вкладок (страницы вызывают после создания файлов)
+        self.app_state["_update_tabs"] = lambda: self._update_routes_dependent_tabs()
 
     # Порядок вкладок ленты (как в Excel) — должен совпадать с порядком страниц в стеке
     RIBBON_PAGES = ["dashboard", "home", "labels", "preview_general", "preview_dept"]
     RIBBON_LABELS = ["Главная", "Обработка файлов", "Этикетки", "Общие маршруты", "По отделам"]
+    RIBBON_TAB_HINTS = {
+        "dashboard": "Стартовая страница: описание, место сохранения, отчёт по последним маршрутам.",
+        "home": "Загрузка XLS-файлов маршрутов (ШК/СД), выбор папки сохранения и даты.",
+        "labels": "Создание и печать этикеток по отделам и продуктам.",
+        "preview_general": "Таблица общих маршрутов: поиск, фильтр, редактирование, исключение. Переход к маршрутам по отделам.",
+        "preview_dept": "Маршруты по отделам: вкладки отделов, создание XLS-файлов и этикеток.",
+    }
 
     def _make_header(self) -> QWidget:
         bar = QWidget()
@@ -121,15 +122,25 @@ class MainWindow(QMainWindow):
             self.navigate_to.emit(self.RIBBON_PAGES[index])
 
     def _update_routes_dependent_tabs(self) -> None:
-        """Включает/выключает вкладки Этикетки, Общие маршруты, По отделам — только при наличии маршрутов."""
+        """Включает/выключает вкладки Этикетки, Общие маршруты, По отделам — только при наличии маршрутов.
+        Для вкладки «Этикетки» дополнительно требуется создание файлов общих и по отделам."""
         routes = self.app_state.get("filteredRoutes") or self.app_state.get("routes") or []
         active = sum(1 for r in routes if not r.get("excluded"))
         has_routes = active > 0
-        hint_disabled = "Сначала добавьте информацию о маршрутах"
+        general_ok = bool(self.app_state.get("generalFileCreated"))
+        dept_ok = bool(self.app_state.get("deptFilesCreated"))
+        labels_enabled = has_routes and general_ok and dept_ok
+        hint_disabled = "Сначала обработайте файлы или откройте маршруты из истории"
+        hint_labels_disabled = "Сначала создайте файлы общих маршрутов и по отделам на странице «По отделам»"
         for i, name in enumerate(self.RIBBON_PAGES):
-            if name in ("labels", "preview_general", "preview_dept"):
+            if name == "labels":
+                self.ribbon_tabs.setTabEnabled(i, labels_enabled)
+                self.ribbon_tabs.setTabToolTip(i, hint_labels_disabled if not labels_enabled else self.RIBBON_TAB_HINTS.get(name, ""))
+            elif name in ("preview_general", "preview_dept"):
                 self.ribbon_tabs.setTabEnabled(i, has_routes)
-                self.ribbon_tabs.setTabToolTip(i, hint_disabled if not has_routes else "")
+                self.ribbon_tabs.setTabToolTip(i, hint_disabled if not has_routes else self.RIBBON_TAB_HINTS.get(name, ""))
+            else:
+                self.ribbon_tabs.setTabToolTip(i, self.RIBBON_TAB_HINTS.get(name, ""))
 
     def set_ribbon_page(self, page_name: str):
         """Устанавливает активную вкладку ленты по имени страницы (вызывается из app.navigate)."""
@@ -149,27 +160,33 @@ class MainWindow(QMainWindow):
         file_menu = mb.addMenu("Файл")
 
         ref_sub = file_menu.addMenu("Справочники")
-        data_sub = ref_sub.addMenu("Данные")
         act_depts = QAction("Отделы и продукты\tCtrl+D", self)
         act_depts.setShortcut(QKeySequence("Ctrl+D"))
         act_depts.triggered.connect(lambda: self.navigate_to.emit("departments"))
-        data_sub.addAction(act_depts)
+        ref_sub.addAction(act_depts)
         act_products = QAction("Продукты\tCtrl+P", self)
         act_products.setShortcut(QKeySequence("Ctrl+P"))
         act_products.triggered.connect(lambda: self.navigate_to.emit("products"))
-        data_sub.addAction(act_products)
+        ref_sub.addAction(act_products)
+
+        settings_sub = file_menu.addMenu("Настройки")
+        act_restore = QAction("Восстановить данные из резервной копии", self)
+        act_restore.triggered.connect(self._on_restore_data)
+        settings_sub.addAction(act_restore)
+        settings_sub.addSeparator()
         act_templates = QAction("Шаблоны Excel\tCtrl+T", self)
         act_templates.setShortcut(QKeySequence("Ctrl+T"))
         act_templates.triggered.connect(lambda: self.navigate_to.emit("templates"))
-        ref_sub.addAction(act_templates)
-
-        settings_sub = file_menu.addMenu("Настройки")
+        settings_sub.addAction(act_templates)
         act_file_params = QAction("Параметры создания файлов", self)
         act_file_params.triggered.connect(self._open_file_creation_settings)
         settings_sub.addAction(act_file_params)
         act_quantity = QAction("Настройки Количества", self)
         act_quantity.triggered.connect(self._open_quantity_settings)
         settings_sub.addAction(act_quantity)
+        act_appearance = QAction("Оформление", self)
+        act_appearance.triggered.connect(self._open_appearance_settings)
+        settings_sub.addAction(act_appearance)
 
         help_sub = file_menu.addMenu("Помощь")
         act_shortcuts = QAction("Горячие клавиши", self)
@@ -190,6 +207,73 @@ class MainWindow(QMainWindow):
         """Горячие клавиши заданы у QAction в меню (Ctrl+O, Ctrl+L, Ctrl+D и т.д.)."""
         pass
 
+    def _create_app_state(self, save_dir: str | None) -> dict:
+        """Создаёт централизованное состояние приложения с явными полями."""
+        return {
+            "fileType": FILE_TYPE_MAIN,
+            "filePaths": [],
+            "saveDir": save_dir,
+            "routes": [],
+            "uniqueProducts": [],
+            "filteredRoutes": [],
+            "productReplacements": [],
+            "routeCategory": ROUTE_CATEGORY_SHK,
+            "sortAsc": True,
+            "generalFileCreated": False,
+            "deptFilesCreated": False,
+        }
+
+    def _on_restore_data(self):
+        try:
+            from ui.pages.restore_data_dialog import run_restore_data_dialog
+            if run_restore_data_dialog(self):
+                QMessageBox.information(
+                    self, "Перезапуск",
+                    "Перезапустите приложение для применения восстановленных данных."
+                )
+                self.close()
+        except Exception:
+            import logging
+            logging.getLogger("app").exception("restore_data")
+
+    def closeEvent(self, event):
+        """Проверяет несохранённые изменения перед закрытием."""
+        if self._has_unsaved_changes():
+            reply = QMessageBox.question(
+                self, "Несохранённые изменения",
+                "Есть несохранённые изменения (исключённые маршруты или замены продуктов).\n"
+                "Сохранить изменения перед закрытием?",
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if reply == QMessageBox.StandardButton.Cancel:
+                event.ignore()
+                return
+            if reply == QMessageBox.StandardButton.Save:
+                self._save_session_before_close()
+        event.accept()
+
+    def _has_unsaved_changes(self) -> bool:
+        """Проверяет наличие несохранённых изменений (исключённые маршруты, замены продуктов)."""
+        routes = self.app_state.get("filteredRoutes") or []
+        excluded = sum(1 for r in routes if r.get("excluded"))
+        if excluded > 0:
+            return True
+        replacements = self.app_state.get("productReplacements") or []
+        return len(replacements) > 0
+
+    def _save_session_before_close(self) -> None:
+        """Сохраняет текущую сессию (маршруты, фильтры) в историю перед закрытием."""
+        routes = self.app_state.get("routes") or []
+        filtered = self.app_state.get("filteredRoutes") or []
+        unique = self.app_state.get("uniqueProducts") or []
+        if not routes:
+            return
+        file_type = self.app_state.get("fileType", FILE_TYPE_MAIN)
+        save_dir = self.app_state.get("saveDir") or data_store.get_setting("defaultSaveDir")
+        route_category = (routes[0].get("routeCategory", ROUTE_CATEGORY_SHK) if routes else ROUTE_CATEGORY_SHK)
+        data_store.save_last_routes(file_type, routes, unique, filtered, route_category=route_category, save_dir=save_dir)
+
     def _open_file_creation_settings(self):
         try:
             from ui.pages.file_creation_settings_dialog import open_file_creation_settings_dialog
@@ -203,10 +287,22 @@ class MainWindow(QMainWindow):
         try:
             from ui.pages.quantity_settings_dialog import open_quantity_settings_dialog
             open_quantity_settings_dialog(self, self.app_state)
+            # После закрытия — обновить preview страницы если открыты
+            cb = self.app_state.get("refresh_preview_pages")
+            if callable(cb):
+                cb()
         except Exception:
             import traceback
             import logging
             logging.getLogger("app").exception("quantity_settings")
+
+    def _open_appearance_settings(self):
+        try:
+            from ui.pages.appearance_settings_dialog import open_appearance_settings_dialog
+            open_appearance_settings_dialog(self)
+        except Exception:
+            import logging
+            logging.getLogger("app").exception("appearance_settings")
 
     def _show_shortcuts_help(self):
         from PyQt6.QtWidgets import QMessageBox
@@ -227,20 +323,28 @@ class MainWindow(QMainWindow):
         mb.exec()
 
     def _show_about(self):
-        from PyQt6.QtWidgets import QMessageBox
-        try:
-            from version import VERSION
-        except ImportError:
-            VERSION = "?"
-        from core.data_store import get_app_data_dir
-        data_dir = str(get_app_data_dir())
-        QMessageBox.about(
-            self, "О программе",
-            f"<h3>Маршруты, Сборка</h3>"
-            f"<p>Версия {VERSION}</p>"
-            f"<p>Обработка маршрутных XLS файлов, генерация отчётов и этикеток.</p>"
-            f"<p><small>Данные: {data_dir}</small></p>"
+        text = (
+            "<h3>Маршруты, Сборка</h3>"
+            "<p><b>Инструкция по использованию</b></p>"
+            "<p><b>1. Обработка файлов.</b> Вкладка «Обработка файлов»: выберите тип (основной или довоз), "
+            "укажите папку сохранения, перетащите XLS-файлы маршрутов (ШК и/или СД) в зону загрузки. "
+            "Нажмите «Обработать» — при новых названиях продуктов появится диалог выбора (новый продукт или дубликат).</p>"
+            "<p><b>2. Предпросмотр.</b> После обработки откроется таблица общих маршрутов. Используйте поиск (Ctrl+F), "
+            "фильтр по продукту, двойной клик по номеру маршрута для редактирования, правый клик — исключить из выгрузки. "
+            "Кнопка «Далее» — переход к маршрутам по отделам.</p>"
+            "<p><b>3. Маршруты по отделам.</b> Выберите отдел во вкладках, укажите папку сохранения. "
+            "«Создать файлы для всех отделов» — генерация XLS-файлов и этикеток. При непривязанных продуктах появится баннер — "
+            "откройте «Отделы и продукты» для привязки.</p>"
+            "<p><b>4. Этикетки.</b> Выберите отдел и продукт, нажмите «Предпросмотр» или «Печать этикеток». "
+            "В «Настройках этикеток» настройте режимы (чищенка, сыпучка) по отделам.</p>"
+            "<p><b>5. Справочники.</b> Меню «Файл» → «Справочники»: «Отделы и продукты» — иерархия отделов и привязка продуктов; "
+            "«Продукты» — алиасы (варианты написания → каноническое); «Шаблоны» — структура столбцов XLS по отделам.</p>"
+            "<p><b>6. Настройки.</b> «Параметры создания файлов» — размер шрифта и отступы; "
+            "«Настройки Количества» — округление в штуках по продуктам и учреждениям.</p>"
+            "<p><b>Горячие клавиши:</b> Ctrl+D — Отделы и продукты, Ctrl+T — Шаблоны, Ctrl+P — Продукты, "
+            "Ctrl+F — фокус на поиск, Escape — закрыть диалог.</p>"
         )
+        QMessageBox.about(self, "О программе", text)
 
     # ─────────────────────────── Навигация ────────────────────────────────────
 
@@ -268,17 +372,8 @@ class MainWindow(QMainWindow):
 
     def _on_new_session(self):
         """Сбрасывает состояние и возвращает на главную страницу."""
-        # Обновляем существующий словарь (страницы держат ссылку на него)
-        self.app_state.update({
-            "fileType": "main",
-            "filePaths": [],
-            "saveDir": None,
-            "routes": [],
-            "uniqueProducts": [],
-            "filteredRoutes": [],
-            "routeCategory": "ШК",
-            "sortAsc": True,
-        })
+        self.app_state.update(self._create_app_state(None))
+        self._update_routes_dependent_tabs()
         self.navigate_to.emit("dashboard")
 
 

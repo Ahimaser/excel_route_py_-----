@@ -6,6 +6,7 @@ import shutil
 import sys
 import tempfile
 import time
+import uuid
 
 
 def _build_label_cell_values(
@@ -54,14 +55,17 @@ def _run_generate(payload: dict, excel) -> int:
     template_rows = int(payload["template_rows"])
     source_rows = [int(v) for v in payload["source_rows"]]
     label_layout = payload.get("label_layout") or []
+    output_xlsx = bool(payload.get("output_xlsx"))
 
     src_wb = None
     dst_wb = None
     temp_dir = None
     try:
         temp_dir = tempfile.mkdtemp(prefix="labels_excel_")
-        temp_template = os.path.join(temp_dir, "template.xls")
-        temp_output = os.path.join(temp_dir, "output.xls")
+        tpl_ext = ".xlsx" if (template_path or "").lower().endswith(".xlsx") else ".xls"
+        out_ext = ".xlsx" if output_xlsx else ".xls"
+        temp_template = os.path.join(temp_dir, f"template{tpl_ext}")
+        temp_output = os.path.join(temp_dir, f"output{out_ext}")
         shutil.copyfile(template_path, temp_template)
 
         src_wb = excel.Workbooks.Open(
@@ -161,7 +165,9 @@ def _run_generate(payload: dict, excel) -> int:
         else:
             template_sheet.Name = "Этикетки"
 
-        dst_wb.SaveAs(os.path.abspath(temp_output), FileFormat=56)
+        # FileFormat: 56=xlOpenXMLWorkbookMacroEnabled (.xlsm), 51=xlOpenXMLWorkbook (.xlsx)
+        file_format = 51 if output_xlsx else 56
+        dst_wb.SaveAs(os.path.abspath(temp_output), FileFormat=file_format)
         os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
         shutil.copyfile(temp_output, save_path)
         return 0
@@ -260,6 +266,89 @@ def _run_print(payload: dict, excel) -> int:
             pass
 
 
+def _run_export_pdf(payload: dict, excel) -> int:
+    """Экспорт XLS в PDF для точного предпросмотра этикетки."""
+    xls_path = os.path.abspath(payload["xls_path"])
+    output_pdf = os.path.abspath(payload["output_pdf_path"])
+    margins = payload.get("margins") or {}
+    top_cm = float(margins.get("top_cm", 2.0))
+    right_cm = float(margins.get("right_cm", 2.0))
+    bottom_cm = float(margins.get("bottom_cm", 0.0))
+    left_cm = float(margins.get("left_cm", 0.0))
+
+    # Excel COM может не открыть/сохранить файлы с кириллицей в пути — используем ASCII-пути
+    xls_to_open = xls_path
+    temp_xls = None
+    pdf_to_export = output_pdf
+    temp_pdf = None
+    try:
+        if not all(ord(c) < 128 for c in xls_path):
+            ext = ".xlsx" if xls_path.lower().endswith(".xlsx") else ".xls"
+            temp_xls = os.path.join(tempfile.gettempdir(), f"labels_export_{uuid.uuid4().hex[:8]}{ext}")
+            shutil.copy2(xls_path, temp_xls)
+            xls_to_open = temp_xls
+        if not all(ord(c) < 128 for c in output_pdf):
+            temp_pdf = os.path.join(tempfile.gettempdir(), f"labels_preview_{uuid.uuid4().hex[:8]}.pdf")
+            pdf_to_export = temp_pdf
+    except Exception:
+        pass
+
+    wb = None
+    try:
+        wb = excel.Workbooks.Open(
+            xls_to_open,
+            UpdateLinks=False,
+            ReadOnly=True,
+            IgnoreReadOnlyRecommended=True,
+            Notify=False,
+            AddToMru=False,
+        )
+        for ws in wb.Worksheets:
+            try:
+                ps = ws.PageSetup
+                ps.TopMargin = excel.CentimetersToPoints(top_cm)
+                ps.RightMargin = excel.CentimetersToPoints(right_cm)
+                ps.BottomMargin = excel.CentimetersToPoints(bottom_cm)
+                ps.LeftMargin = excel.CentimetersToPoints(left_cm)
+            except Exception:
+                continue
+        os.makedirs(os.path.dirname(pdf_to_export) or ".", exist_ok=True)
+        # xlTypePDF = 0, xlQualityStandard = 0
+        wb.ExportAsFixedFormat(
+            Type=0,
+            Filename=pdf_to_export,
+            Quality=0,
+            IncludeDocProperties=True,
+            IgnorePrintAreas=False,
+            OpenAfterPublish=False,
+        )
+        if temp_pdf and os.path.isfile(temp_pdf):
+            os.makedirs(os.path.dirname(output_pdf) or ".", exist_ok=True)
+            shutil.copy2(temp_pdf, output_pdf)
+            os.unlink(temp_pdf)
+        print(json.dumps({"pdf_path": output_pdf}, ensure_ascii=False))
+        return 0
+    except Exception as exc:
+        print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)
+        return 1
+    finally:
+        try:
+            if wb is not None:
+                wb.Close(SaveChanges=False)
+        except Exception:
+            pass
+        if temp_xls and os.path.isfile(temp_xls):
+            try:
+                os.unlink(temp_xls)
+            except Exception:
+                pass
+        if temp_pdf and os.path.isfile(temp_pdf):
+            try:
+                os.unlink(temp_pdf)
+            except Exception:
+                pass
+
+
 def _run_printers() -> int:
     try:
         import win32print
@@ -305,6 +394,8 @@ def main() -> int:
             return _run_preview(payload, excel)
         if mode == "print":
             return _run_print(payload, excel)
+        if mode == "export_pdf":
+            return _run_export_pdf(payload, excel)
         return _run_generate(payload, excel)
     finally:
         try:

@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QFileDialog, QListWidget, QListWidgetItem,
     QButtonGroup, QRadioButton, QProgressBar, QSizePolicy,
-    QScrollArea, QMessageBox, QComboBox, QDateEdit,
+    QScrollArea, QMessageBox, QComboBox, QDateEdit, QApplication,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject, QDate
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
@@ -60,7 +60,7 @@ class DropZone(QFrame):
 
     def __init__(self):
         super().__init__()
-        self.setObjectName("card")
+        self.setObjectName("dropZoneCard")
         self.setAcceptDrops(True)
         self.setMinimumHeight(120)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -81,20 +81,21 @@ class DropZone(QFrame):
     def mousePressEvent(self, event):
         self.files_dropped.emit([])
 
+    def _set_drop_hover(self, hover: bool):
+        self.setProperty("dropZoneHover", hover)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            from ui.styles import ACCENT, ACCENT_LIGHT
-            self.setStyleSheet(
-                f"QFrame#card {{ border: 2px dashed {ACCENT}; "
-                f"background: {ACCENT_LIGHT}; border-radius: 10px; }}"
-            )
+            self._set_drop_hover(True)
 
     def dragLeaveEvent(self, event):
-        self.setStyleSheet("")
+        self._set_drop_hover(False)
 
     def dropEvent(self, event: QDropEvent):
-        self.setStyleSheet("")
+        self._set_drop_hover(False)
         paths = [
             url.toLocalFile()
             for url in event.mimeData().urls()
@@ -398,9 +399,24 @@ class HomePage(QWidget):
         if not file_paths:
             return
 
+        # Проверка существования файлов перед парсингом
+        existing_shk = [p for p in self._file_paths_shk if os.path.isfile(p)]
+        existing_sd = [p for p in self._file_paths_sd if os.path.isfile(p)]
+        missing = [p for p in file_paths if p not in existing_shk + existing_sd]
+        if missing:
+            msg = "Следующие файлы недоступны (удалены или перемещены) и будут пропущены:\n\n" + "\n".join(missing[:10])
+            if len(missing) > 10:
+                msg += f"\n\n... и ещё {len(missing) - 10}"
+            QMessageBox.warning(self, "Файлы недоступны", msg)
+        file_paths = existing_shk + existing_sd
+        file_categories = ["ШК"] * len(existing_shk) + ["СД"] * len(existing_sd)
+        if not file_paths:
+            return
+
         self.app_state["filePaths"] = file_paths[:]
         self.btn_process.setEnabled(False)
         self.progress_bar.setVisible(True)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
         self._thread = QThread()
         self._worker = ParseWorker(file_paths, file_categories=file_categories)
@@ -413,6 +429,7 @@ class HomePage(QWidget):
         self._thread.start()
 
     def _on_parse_done(self, result: dict):
+        QApplication.restoreOverrideCursor()
         self.progress_bar.setVisible(False)
         self.btn_process.setEnabled(True)
 
@@ -432,16 +449,20 @@ class HomePage(QWidget):
         qd = self.date_edit.date()
         self.app_state["routesDate"] = f"{qd.day():02d}.{qd.month():02d}.{qd.year()}"
         self.app_state["routeCategory"] = first_cat
+        self.app_state["generalFileCreated"] = False
+        self.app_state["deptFilesCreated"] = False
 
         if routes and hasattr(self.app_state.get("set_status"), "__call__"):
             self.app_state["set_status"](f"Загружено {len(routes)} маршрутов")
 
+        save_dir = self.app_state.get("saveDir") or data_store.get_setting("defaultSaveDir")
         data_store.save_last_routes(
             self.app_state.get("fileType", "main"),
             routes,
             unique_products,
             self.app_state["filteredRoutes"],
             route_category=first_cat,
+            save_dir=save_dir,
         )
 
         store_prods = data_store.get_ref("products") or []
@@ -486,6 +507,7 @@ class HomePage(QWidget):
         self.go_preview.emit()
 
     def _on_parse_error(self, msg: str):
+        QApplication.restoreOverrideCursor()
         self.progress_bar.setVisible(False)
         self.btn_process.setEnabled(True)
         QMessageBox.critical(self, "Ошибка", f"Ошибка при обработке файлов:\n{msg}")
