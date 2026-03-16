@@ -244,7 +244,7 @@ QFrame#card {{
     background-color: {_BG_CARD};
     border: 1px solid {_BORDER};
     border-radius: 6px;
-    padding: 8px;
+    padding: 20px 16px 20px 16px;
 }}
 
 /* ─── Дерево отделов и продуктов ─── */
@@ -537,13 +537,17 @@ QScrollBar::handle:horizontal:hover {{
 
 /* ─── Labels (Material typography) ─── */
 QLabel#sectionTitle {{
-    font-size: 16px;
-    font-weight: 500;
+    font-size: 18px;
+    font-weight: 600;
     color: {_TEXT};
     letter-spacing: 0.1px;
 }}
+QLabel#pageSubtitle {{
+    font-size: 12px;
+    color: {_TEXT_MUTED};
+}}
 QLabel#cardTitle {{
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     color: {_TEXT};
 }}
@@ -557,9 +561,9 @@ QLabel#warningLabel {{
     color: {_DANGER};
 }}
 QLabel#stepLabel {{
-    font-size: 11px;
+    font-size: 12px;
     color: {_TEXT_MUTED};
-    line-height: 1.4;
+    line-height: 1.5;
 }}
 QLabel#hintLabel {{
     font-size: 10px;
@@ -861,6 +865,10 @@ QFrame#separator {{
     background-color: {_BORDER};
     max-height: 1px;
 }}
+QFrame#sectionDivider {{
+    background-color: {_BORDER_LIGHT};
+    max-height: 1px;
+}}
 
 /* ─── Строка состояния (как в Excel) ─── */
 QStatusBar {{
@@ -992,6 +1000,8 @@ QFrame#dropZoneCard[dropZoneHover="true"] {{ border: 2px dashed {_ACCENT_DARK}; 
 QLineEdit#editRouteNumInput {{ border: 2px solid {_ACCENT_DARK}; background: {_BG_SURFACE_DARK}; }}
 QLineEdit#editRouteNumInput[hasError="true"] {{ border: 2px solid {_DANGER}; }}
 QFrame#instCard[selected="true"] {{ border: 2px solid {_ACCENT_DARK}; background-color: {_EXCEL_SELECT_BG_DARK}; }}
+QLabel#badgeRed {{ background-color: #7F1D1D; color: #FCA5A5; border-radius: 12px; padding: 4px 10px; font-size: 10px; font-weight: 600; }}
+QLabel#badgeGreen {{ background-color: #14532D; color: #4BD08B; border-radius: 12px; padding: 4px 10px; font-size: 10px; font-weight: 600; }}
 QLabel#badgeOrange {{ background-color: #78350F; color: #F59E0B; }}
 QLabel#badgeGray {{ background-color: rgba(100, 116, 139, 0.3); color: {_TEXT_LIGHT_DARK}; border: 1px solid {_BORDER_DARK}; }}
 QFrame#replacementProductCard {{ background-color: {_BG_CARD_DARK}; border: 1px solid {_BORDER_DARK}; }}

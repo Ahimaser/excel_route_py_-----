@@ -22,14 +22,19 @@ from PyQt6.QtWidgets import (
 )
 
 from core import data_store
+from ui.widgets import hint_icon_button
 
 
-def open_product_groups_dialog(parent, dept_key: str, dept_name: str, product_names: list[str]) -> dict[str, list[list[str]]] | None:
+def open_product_groups_dialog(
+    parent, dept_key: str, dept_name: str, product_names: list[str],
+    category: str | None = None,
+) -> dict[str, list[list[str]]] | None:
     """
     Открывает диалог настройки групп продуктов.
+    category: "ШК" | "СД" — для сохранения по категории (Школы/Сады). None — общий формат.
     Возвращает {dept_key: [[p1, p2], [p3], ...]} или None при отмене.
     """
-    dlg = ProductGroupsDialog(parent, dept_key, dept_name, product_names)
+    dlg = ProductGroupsDialog(parent, dept_key, dept_name, product_names, category=category)
     if dlg.exec() == QDialog.DialogCode.Accepted:
         return dlg.get_result()
     return None
@@ -38,20 +43,20 @@ def open_product_groups_dialog(parent, dept_key: str, dept_name: str, product_na
 class ProductGroupsDialog(QDialog):
     """Диалог настройки групп продуктов для одного отдела/подотдела."""
 
-    def __init__(self, parent, dept_key: str, dept_name: str, product_names: list[str]):
+    def __init__(self, parent, dept_key: str, dept_name: str, product_names: list[str], category: str | None = None):
         super().__init__(parent)
         self.dept_key = dept_key
         self.dept_name = dept_name
         self.product_names = list(product_names or [])
-        self.setWindowTitle(f"Группы продуктов — {dept_name}")
-        self.setMinimumWidth(520)
-        self.setMinimumHeight(400)
-        self.resize(580, 450)
+        self.category = category
+        cat_label = " (Школы)" if category == "ШК" else " (Сады)" if category == "СД" else ""
+        self.setWindowTitle(f"Группы продуктов — {dept_name}{cat_label}")
+        self.setMinimumSize(600, 450)
+        self.resize(700, 520)
 
-        saved = data_store.get_setting("productFileGroups") or {}
-        saved_groups = saved.get(dept_key)
-        if saved_groups and isinstance(saved_groups, list):
-            self._groups = [list(g) if isinstance(g, (list, tuple)) else [g] for g in saved_groups]
+        saved_groups = data_store.get_product_file_groups(dept_key, category)
+        if saved_groups:
+            self._groups = [[p for p in g] for g in saved_groups]
         else:
             self._groups = [[p] for p in self.product_names]
 
@@ -59,8 +64,26 @@ class ProductGroupsDialog(QDialog):
 
     def _build_ui(self) -> None:
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(16)
 
-        lay.addWidget(QLabel("Объедините продукты в группы. Каждая группа — отдельный файл."))
+        hint_row = QHBoxLayout()
+        hint_lbl = QLabel("Объедините продукты в группы. Каждая группа — отдельный файл.")
+        hint_lbl.setObjectName("stepLabel")
+        hint_lbl.setWordWrap(True)
+        hint_row.addWidget(hint_lbl)
+        hint_row.addWidget(hint_icon_button(
+            self,
+            "Группы определяют, как продукты объединяются в файлы при режиме «По группам».",
+            "Инструкция — Группы продуктов\n\n"
+            "1. Слева — список продуктов отдела. Справа — группы (каждая группа = отдельный файл).\n"
+            "2. Выберите продукт слева, нажмите «+» у нужной группы — продукт добавится в группу.\n"
+            "3. «Добавить группу» — новая пустая группа.\n"
+            "4. «Удалить» — удалить группу (продукты останутся в отделе, но не войдут в файлы).",
+            "Инструкция",
+        ))
+        hint_row.addStretch()
+        lay.addLayout(hint_row)
 
         split = QSplitter(Qt.Orientation.Horizontal)
 
@@ -104,6 +127,7 @@ class ProductGroupsDialog(QDialog):
         btn_ok.setObjectName("btnPrimary")
         btn_ok.clicked.connect(self.accept)
         btn_cancel = QPushButton("Отмена")
+        btn_cancel.setObjectName("btnSecondary")
         btn_cancel.clicked.connect(self.reject)
         btn_row_main.addWidget(btn_ok)
         btn_row_main.addWidget(btn_cancel)
@@ -181,7 +205,5 @@ class ProductGroupsDialog(QDialog):
         groups = self._collect_groups_from_ui()
         if not groups:
             groups = [[p] for p in self.product_names]
-        saved = dict(data_store.get_setting("productFileGroups") or {})
-        saved[self.dept_key] = groups
-        data_store.set_setting("productFileGroups", saved)
+        data_store.set_product_file_groups(self.dept_key, groups, category=self.category)
         return {self.dept_key: groups}

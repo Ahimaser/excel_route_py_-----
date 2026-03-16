@@ -12,12 +12,11 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem,
     QLineEdit, QComboBox, QFormLayout, QDialogButtonBox,
     QMessageBox, QInputDialog, QListWidget, QListWidgetItem, QHeaderView,
-    QMenu, QApplication, QStyle, QScrollArea, QFrame,
+    QMenu, QApplication, QScrollArea, QFrame,
     QToolButton,
 )
 from PyQt6.QtCore import Qt, QTimer, QMimeData
-from PyQt6.QtGui import QFont, QAction, QShortcut, QKeySequence
-from PyQt6.QtGui import QDrag, QBrush, QColor
+from PyQt6.QtGui import QAction, QShortcut, QKeySequence, QDrag
 
 from core import data_store
 from ui.widgets import hint_icon_button, CommitLineEdit, SearchableList, ToggleSwitch
@@ -212,20 +211,23 @@ class DepartmentsDialog(QDialog):
         search_row.addWidget(self.le_search)
         lay.addLayout(search_row)
 
+        card = QFrame()
+        card.setObjectName("card")
+        card_lay = QVBoxLayout(card)
+        card_lay.addWidget(QLabel("Отделы / подотделы / продукты"))
         self._cut_product_names: list[str] = []
         self.tree = DeptsTreeWidget(self)
         self.tree.setObjectName("deptsProductsTree")
         self.tree.setHeaderLabels(["Название", "Ед. изм. / кол-во", "Печатать этикетки"])
-        hdr = self.tree.header()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.tree.setAlternatingRowColors(True)
-        self.tree.setUniformRowHeights(True)
+        self.tree.setColumnWidth(0, 320)
+        self.tree.setColumnWidth(1, 140)
+        self.tree.setColumnWidth(2, 160)
+        self.tree.setMinimumHeight(280)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree_updating = False
-        lay.addWidget(self.tree)
+        card_lay.addWidget(self.tree)
+        lay.addWidget(card)
 
         sc_cut = QShortcut(QKeySequence.StandardKey.Cut, self.tree)
         sc_cut.activated.connect(self._on_cut)
@@ -271,16 +273,7 @@ class DepartmentsDialog(QDialog):
         depts    = data_store.get_ref("departments") or []
         products = data_store.get_ref("products") or []
         prod_index = self._build_product_index(products)
-        bold_font = QFont("", 13, QFont.Weight.Bold)
-        style = self.tree.style()
-        icon_dept = style.standardIcon(QStyle.StandardPixmap.SP_DirIcon)
-        try:
-            icon_sub = style.standardIcon(QStyle.StandardPixmap.SP_DirLinkIcon)
-        except AttributeError:
-            icon_sub = icon_dept
-        icon_prod = style.standardIcon(QStyle.StandardPixmap.SP_FileIcon)
 
-        card_bg = QBrush(QColor("#F8FAFC"))
         for dept in sorted(depts, key=lambda d: d["name"].lower()):
             dept_count = prod_index.get(dept["key"], 0)
             dept_item = QTreeWidgetItem([
@@ -289,11 +282,6 @@ class DepartmentsDialog(QDialog):
                 ""
             ])
             dept_item.setData(0, Qt.ItemDataRole.UserRole, dept)
-            dept_item.setIcon(0, icon_dept)
-            dept_item.setFont(0, bold_font)
-            dept_item.setBackground(0, card_bg)
-            dept_item.setBackground(1, card_bg)
-            dept_item.setBackground(2, card_bg)
 
             for sub in sorted(dept.get("subdepts", []), key=lambda s: s["name"].lower()):
                 sub_count = prod_index.get(sub["key"], 0)
@@ -303,10 +291,6 @@ class DepartmentsDialog(QDialog):
                     ""
                 ])
                 sub_item.setData(0, Qt.ItemDataRole.UserRole, sub)
-                sub_item.setIcon(0, icon_sub)
-                sub_item.setBackground(0, card_bg)
-                sub_item.setBackground(1, card_bg)
-                sub_item.setBackground(2, card_bg)
 
                 for prod in sorted(
                     (p for p in products if p.get("deptKey") == sub["key"]),
@@ -318,7 +302,6 @@ class DepartmentsDialog(QDialog):
                         ""
                     ])
                     prod_item.setData(0, Qt.ItemDataRole.UserRole, prod)
-                    prod_item.setIcon(0, icon_prod)
                     sub_item.addChild(prod_item)
 
                 dept_item.addChild(sub_item)
@@ -334,7 +317,6 @@ class DepartmentsDialog(QDialog):
                     ""
                 ])
                 prod_item.setData(0, Qt.ItemDataRole.UserRole, prod)
-                prod_item.setIcon(0, icon_prod)
                 dept_item.addChild(prod_item)
 
             self.tree.addTopLevelItem(dept_item)
@@ -350,17 +332,17 @@ class DepartmentsDialog(QDialog):
         kind, _ = _item_role(obj)
         if kind not in ("dept", "subdept"):
             return
-        host = QWidget()
-        row = QHBoxLayout(host)
-        row.setContentsMargins(4, 2, 4, 2)
-        row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        tog = ToggleSwitch(host)
+        container = QWidget()
+        lay = QHBoxLayout(container)
+        lay.setContentsMargins(8, 2, 8, 2)
+        tog = ToggleSwitch(container)
         tog.setChecked(enabled)
         tog.stateChanged.connect(
             lambda state, it=item: self._on_labels_toggle_changed(it, state == Qt.CheckState.Checked.value)
         )
-        row.addWidget(tog)
-        self.tree.setItemWidget(item, 2, host)
+        lay.addWidget(tog)
+        lay.addStretch()
+        self.tree.setItemWidget(item, 2, container)
 
     def _on_labels_toggle_changed(self, item: QTreeWidgetItem, enabled: bool) -> None:
         obj = item.data(0, Qt.ItemDataRole.UserRole)

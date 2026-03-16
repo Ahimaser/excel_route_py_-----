@@ -251,6 +251,13 @@ def _ensure_loaded() -> None:
         _data["settings"]["labelsTempAutoCleanup"] = True
     if "productFileGroups" not in _data["settings"]:
         _data["settings"]["productFileGroups"] = {}
+    if "saveModeByDeptCategory" not in _data["settings"]:
+        _data["settings"]["saveModeByDeptCategory"] = {}
+    if "savingsSettings" not in _data["settings"]:
+        _data["settings"]["savingsSettings"] = {
+            "institutionSavings": {},  # {code: {percent: float, excludeAddresses: [addr]}}
+            "addressSavings": {},      # {addr: {percent: float}}
+        }
     # Миграция: переименование «ЧИЩЕНКА» → «Очищенные» (до проверки labelPrintMode) (до проверки labelPrintMode)
     for dept in _data.get("departments", []):
         for sub in dept.get("subdepts", []):
@@ -420,6 +427,62 @@ def set_setting(key: str, value: Any) -> None:
     _flush()
 
 
+def get_save_mode_by_dept_category(dept_key: str, category: str) -> str:
+    """
+    Режим сохранения для (отдел, категория ШК/СД).
+    Возвращает "all" | "groups" | "by_product". По умолчанию "all".
+    """
+    modes = get_setting("saveModeByDeptCategory") or {}
+    dept_modes = modes.get(dept_key) or {}
+    return dept_modes.get(category, "all")
+
+
+def set_save_mode_by_dept_category(dept_key: str, category: str, mode: str) -> None:
+    """Устанавливает режим сохранения для (отдел, категория)."""
+    modes = dict(get_setting("saveModeByDeptCategory") or {})
+    dept_modes = dict(modes.get(dept_key) or {})
+    dept_modes[category] = mode
+    modes[dept_key] = dept_modes
+    set_setting("saveModeByDeptCategory", modes)
+
+
+def get_product_file_groups(dept_key: str, category: str | None = None) -> list[list[str]]:
+    """
+    Группы продуктов для отдела. category: "ШК" | "СД" | None.
+    Если category=None, возвращает общие группы (для обратной совместимости).
+    Формат: [[p1,p2], [p3], ...] — каждая группа = один файл.
+    """
+    raw = get_setting("productFileGroups") or {}
+    val = raw.get(dept_key)
+    if val is None:
+        return []
+    if isinstance(val, dict) and category:
+        return list(val.get(category) or [])
+    if isinstance(val, list):
+        return [list(g) if isinstance(g, (list, tuple)) else [g] for g in val]
+    return []
+
+
+def set_product_file_groups(dept_key: str, groups: list[list[str]], category: str | None = None) -> None:
+    """
+    Сохраняет группы продуктов. category: "ШК" | "СД" | None.
+    Если category=None, сохраняет в старый формат (общий для обоих).
+    """
+    raw = dict(get_setting("productFileGroups") or {})
+    if category:
+        dept_val = raw.get(dept_key)
+        if isinstance(dept_val, list):
+            dept_val = {"ШК": dept_val, "СД": dept_val}
+        elif not isinstance(dept_val, dict):
+            dept_val = {}
+        dept_val = dict(dept_val)
+        dept_val[category] = groups
+        raw[dept_key] = dept_val
+    else:
+        raw[dept_key] = groups
+    set_setting("productFileGroups", raw)
+
+
 def get_desktop_path() -> str:
     """Возвращает путь к рабочему столу (кэшируется)."""
     global _desktop_cache
@@ -529,6 +592,28 @@ def resolve_product_name(name: str) -> str:
     _ensure_loaded()
     aliases: dict = _data.get("product_aliases", {})
     return aliases.get(name, name)
+
+
+def format_product_display_name(name: str, prod_map: dict) -> str:
+    """
+    Для продуктов с showPcs и unit != «шт» добавляет к названию «(количество в 1 шт/коробке + ед. изм.)».
+    Пример: «масло сливочное» → «масло сливочное (0,18 кг)».
+    Формат числа: запятая как десятичный разделитель.
+    """
+    if not name or not prod_map:
+        return name or ""
+    sp = prod_map.get(name, {})
+    if not sp.get("showPcs"):
+        return name
+    unit = (sp.get("unit") or "").strip()
+    if not unit or unit.lower() == "шт":
+        return name
+    try:
+        pcu = float(sp.get("pcsPerUnit", 1) or 1)
+    except (ValueError, TypeError):
+        return name
+    pcu_str = str(pcu).replace(".", ",")
+    return f"{name} ({pcu_str} {unit})"
 
 
 # ─────────────────────────── Шаблоны ──────────────────────────────────────
@@ -968,6 +1053,56 @@ def get_round_up_percent_for_dept(dept_key: str | None) -> float:
             pass
     pct = get_setting("roundUpInstitutionPercent")
     return float(pct) if pct is not None else 20.0
+
+
+# ─────────────────────────── Экономия (уменьшение количества по учреждениям) ─
+
+def get_savings_settings() -> dict:
+    """Настройки экономии: institutionSavings, addressSavings."""
+    _ensure_loaded()
+    s = get_setting("savingsSettings") or {}
+    return {
+        "institutionSavings": dict(s.get("institutionSavings") or {}),
+        "addressSavings": dict(s.get("addressSavings") or {}),
+    }
+
+
+def set_savings_settings(settings: dict) -> None:
+    """Сохраняет настройки экономии."""
+    set_setting("savingsSettings", {
+        "institutionSavings": dict(settings.get("institutionSavings") or {}),
+        "addressSavings": dict(settings.get("addressSavings") or {}),
+    })
+
+
+def get_savings_percent_for_address(address: str) -> float:
+    """
+    Процент уменьшения количества для адреса (0–100).
+    Приоритет: сначала addressSavings (конкретный адрес), затем institutionSavings (всё учреждение).
+    Только для продуктов с ед. изм. не «шт».
+    """
+    addr = (address or "").strip()
+    if not addr:
+        return 0.0
+    s = get_savings_settings()
+    addr_savings = s.get("addressSavings") or {}
+    if addr in addr_savings:
+        try:
+            return max(0, min(100, float(addr_savings[addr].get("percent", 0) or 0)))
+        except (ValueError, TypeError):
+            pass
+    inst_savings = s.get("institutionSavings") or {}
+    key = get_institution_key_from_address(addr)
+    if not key or key not in inst_savings:
+        return 0.0
+    cfg = inst_savings[key]
+    exclude = set(cfg.get("excludeAddresses") or [])
+    if addr in exclude:
+        return 0.0
+    try:
+        return max(0, min(100, float(cfg.get("percent", 0) or 0)))
+    except (ValueError, TypeError):
+        return 0.0
 
 
 # ─────────────────────────── История маршрутов (гибрид: индекс + файлы) ────

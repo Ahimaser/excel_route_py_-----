@@ -13,7 +13,7 @@ if __name__ == "__main__":
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QGridLayout, QScrollArea, QSizePolicy,
+    QFrame, QGridLayout, QScrollArea, QSizePolicy, QFileDialog,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -41,6 +41,7 @@ class DashboardPage(QWidget):
     open_history = pyqtSignal()
     go_last_main = pyqtSignal()
     go_last_increase = pyqtSignal()
+    go_process_files = pyqtSignal()
 
     def __init__(self, app_state: dict):
         super().__init__()
@@ -58,8 +59,8 @@ class DashboardPage(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(scroll)
         inner = QVBoxLayout(content)
-        inner.setContentsMargins(24, 20, 24, 20)
-        inner.setSpacing(20)
+        inner.setContentsMargins(24, 16, 24, 16)
+        inner.setSpacing(16)
         scroll.setWidget(content)
 
         title = QLabel("Маршруты, Сборка")
@@ -83,11 +84,23 @@ class DashboardPage(QWidget):
         save_lay.setContentsMargins(16, 12, 16, 12)
         save_lay.setSpacing(6)
         save_lay.addWidget(QLabel("Папка сохранения маршрутов:"))
+        save_row = QHBoxLayout()
         self.lbl_save_dir = QLabel("")
         self.lbl_save_dir.setObjectName("hintLabel")
         self.lbl_save_dir.setWordWrap(True)
-        save_lay.addWidget(self.lbl_save_dir)
+        save_row.addWidget(self.lbl_save_dir, 1)
+        self.btn_change_save_dir = QPushButton("Изменить")
+        self.btn_change_save_dir.setObjectName("btnSecondary")
+        self.btn_change_save_dir.clicked.connect(self._on_change_save_dir)
+        save_row.addWidget(self.btn_change_save_dir)
+        save_lay.addLayout(save_row)
         inner.addWidget(save_frame)
+
+        # Разделитель
+        divider = QFrame()
+        divider.setObjectName("sectionDivider")
+        divider.setFixedHeight(1)
+        inner.addWidget(divider)
 
         # Отчёт по последним маршрутам
         report_frame = QFrame()
@@ -109,7 +122,10 @@ class DashboardPage(QWidget):
         report_lay.addWidget(self.lbl_report_inc)
         inner.addWidget(report_frame)
 
-        # Кнопки
+        # Быстрые действия
+        quick_title = QLabel("Быстрые действия")
+        quick_title.setObjectName("cardTitle")
+        inner.addWidget(quick_title)
         grid = QGridLayout()
         grid.setSpacing(10)
 
@@ -135,6 +151,25 @@ class DashboardPage(QWidget):
         grid.addWidget(self._card_last_inc, 0, 2)
 
         inner.addLayout(grid)
+
+        # Пустое состояние: когда нет истории и последних маршрутов
+        self.empty_state_frame = QFrame()
+        self.empty_state_frame.setObjectName("card")
+        empty_lay = QVBoxLayout(self.empty_state_frame)
+        empty_lay.setContentsMargins(24, 20, 24, 20)
+        empty_lay.setSpacing(12)
+        self.lbl_empty_hint = QLabel("Начните с обработки файлов")
+        self.lbl_empty_hint.setObjectName("cardTitle")
+        self.lbl_empty_hint.setWordWrap(True)
+        empty_lay.addWidget(self.lbl_empty_hint)
+        self.btn_goto_process = QPushButton("Обработать файлы")
+        self.btn_goto_process.setObjectName("btnPrimary")
+        self.btn_goto_process.setFixedHeight(34)
+        self.btn_goto_process.setMinimumWidth(180)
+        self.btn_goto_process.clicked.connect(self.go_process_files.emit)
+        empty_lay.addWidget(self.btn_goto_process)
+        inner.addWidget(self.empty_state_frame)
+
         inner.addStretch()
 
     def _make_card(self, icon: str, title: str, desc: str,
@@ -175,6 +210,15 @@ class DashboardPage(QWidget):
         card_lay.addWidget(btn)
 
         return card
+
+    def _on_change_save_dir(self) -> None:
+        base = data_store.get_setting("defaultSaveDir") or data_store.get_desktop_path()
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Выберите папку для сохранения маршрутов", base
+        )
+        if chosen:
+            data_store.set_setting("defaultSaveDir", chosen)
+            self.lbl_save_dir.setText(f"📁 {chosen}")
 
     def refresh(self):
         """Обновляет место сохранения, отчёт и доступность карточек."""
@@ -234,6 +278,10 @@ class DashboardPage(QWidget):
             has_inc,
             "Открыть последние маршруты довоза" if has_inc else "Нет сохранённых маршрутов. Сначала обработайте файлы."
         )
+
+        # Пустое состояние: показывать, когда нет истории и нет последних маршрутов
+        has_any = total > 0 or has_main or has_inc
+        self.empty_state_frame.setVisible(not has_any)
 
     def _set_card_enabled(self, card: QFrame, enabled: bool, tooltip: str):
         card.setToolTip(tooltip)

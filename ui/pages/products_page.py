@@ -110,7 +110,7 @@ class ProductsDialog(QDialog):
         self.products_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.products_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.products_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        self.products_table.setColumnWidth(3, 220)
+        self.products_table.setColumnWidth(3, 300)
         self.products_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.products_table.setAlternatingRowColors(True)
         self.products_table.setMinimumHeight(400)
@@ -238,6 +238,7 @@ class ProductsDialog(QDialog):
     def _populate_products_table(self, rows_data: list):
         """Заполняет таблицу продуктов. rows_data: список {name, unit, deptKey?}."""
         canonical_names = {p["name"] for p in (getattr(self, "_canonical_prods", []) or [])}
+        prod_map = data_store.get_products_map()
 
         self.products_table.setUpdatesEnabled(False)
         self.products_table.setRowCount(0)
@@ -250,8 +251,12 @@ class ProductsDialog(QDialog):
             dept_key = p.get("deptKey") or ""
             is_unassigned = not dept_key
 
-            # Название: "название (ед. изм.)" — продукты в таблице не являются алиасами
-            name_txt = f"{name} ({unit})" if unit else name
+            # Название: при showPcs — «название (кол-во в 1 шт + ед. изм.)», иначе «название (ед. изм.)»
+            sp = prod_map.get(name, {})
+            if sp.get("showPcs") and unit and unit.lower() != "шт":
+                name_txt = data_store.format_product_display_name(name, prod_map)
+            else:
+                name_txt = f"{name} ({unit})" if unit else name
             name_item = QTableWidgetItem(name_txt)
             name_item.setData(Qt.ItemDataRole.UserRole, name)
             self.products_table.setItem(row, 0, name_item)
@@ -285,6 +290,14 @@ class ProductsDialog(QDialog):
                 combo_link.setMinimumWidth(140)
                 actions_lay.addWidget(combo_link)
 
+            if unit and unit.lower() != "шт":
+                btn_variant = QPushButton("Вариант")
+                btn_variant.setObjectName("btnSecondary")
+                btn_variant.setFixedHeight(28)
+                btn_variant.setToolTip("Создать вариант с другим количеством в 1 шт/коробке")
+                btn_variant.clicked.connect(lambda _, n=name, u=unit: self._on_add_variant(n, u, dept_key))
+                actions_lay.addWidget(btn_variant)
+
             icon_del = self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
             btn_del = QPushButton(icon_del, "")
             btn_del.setObjectName("btnIconDanger")
@@ -301,45 +314,40 @@ class ProductsDialog(QDialog):
     # ─────────────────────────── Действия ─────────────────────────────────
 
     def _on_add_product(self):
-        """Добавить продукт вручную в справочник."""
-        name, ok = QInputDialog.getText(
-            self, "Добавить продукт", "Название продукта:",
-            QLineEdit.EchoMode.Normal, ""
+        """Добавить продукт вручную в справочник (карточная форма)."""
+        from ui.pages.add_product_dialog import open_add_product_dialog
+        if open_add_product_dialog(self):
+            self._refresh()
+            QMessageBox.information(self, "Готово", "Продукт добавлен в справочник.")
+
+    def _on_add_variant(self, base_name: str, unit: str, dept_key: str):
+        """Создать вариант продукта с другим количеством в 1 шт/коробке (напр. масло сливочное (0,18 кг))."""
+        base_prod = next((p for p in (data_store.get_ref("products") or []) if p.get("name") == base_name), None)
+        base_pcu = float(base_prod.get("pcsPerUnit", 1) or 1) if base_prod else 1.0
+        pcu, ok = QInputDialog.getDouble(
+            self, "Добавить вариант продукта",
+            f"Количество в 1 шт/коробке для «{base_name}»:\n(будет создан продукт «{base_name} (X {unit})»)",
+            base_pcu, 0.001, 999.999, 3,
         )
-        if not ok or not (name or "").strip():
+        if not ok or pcu <= 0:
             return
-        name = name.strip()
-        if data_store.get_ref("products") and any(
-            p.get("name") == name for p in data_store.get_ref("products")
-        ):
+        pcu_str = str(pcu).replace(".", ",")
+        variant_name = f"{base_name} ({pcu_str} {unit})"
+        if any(p.get("name") == variant_name for p in (data_store.get_ref("products") or [])):
             QMessageBox.warning(
                 self, "Ошибка",
-                f"Продукт «{name}» уже есть в справочнике."
+                f"Продукт «{variant_name}» уже есть в справочнике.",
             )
             return
-        unit, ok_unit = QInputDialog.getText(
-            self, "Добавить продукт", "Единица измерения (кг, л, шт и т.д.):",
-            QLineEdit.EchoMode.Normal, "кг"
-        )
-        if not ok_unit:
-            return
-        unit = (unit or "").strip()
-        dept_choices = [(k, n) for k, n in data_store.get_department_choices() if k]
-        if dept_choices:
-            items = ["Без отдела"] + [n for _, n in dept_choices]
-            name_to_key = {n: k for k, n in dept_choices}
-            dept_name, ok_dept = QInputDialog.getItem(
-                self, "Добавить продукт", "Отдел (или «Без отдела»):",
-                items, 0, False
-            )
-            dept_key = "" if not ok_dept or dept_name == "Без отдела" else name_to_key.get(dept_name, "")
-        else:
-            dept_key = ""
-        if data_store.add_product(name, unit, dept_key or None):
+        if data_store.add_product(variant_name, unit, dept_key or None):
+            data_store.update_product(variant_name, showPcs=True, pcsPerUnit=pcu)
             self._refresh()
-            QMessageBox.information(self, "Готово", f"Продукт «{name}» добавлен в справочник.")
+            QMessageBox.information(
+                self, "Готово",
+                f"Вариант «{variant_name}» добавлен с настройкой Шт: {pcu_str} {unit} в 1 шт.",
+            )
         else:
-            QMessageBox.warning(self, "Ошибка", f"Не удалось добавить «{name}» (возможно, уже существует).")
+            QMessageBox.warning(self, "Ошибка", f"Не удалось добавить «{variant_name}».")
 
     def _on_assign_dept(self, product_name: str, button: QPushButton):
         """Кнопка «В отдел» — меню выбора отдела."""

@@ -67,12 +67,34 @@ Linux/macOS — `~/.config/ExcelRouteManager/store.json`.
 
 ## Сборка в .exe (Windows)
 
-```bash
-pip install pyinstaller
-pyinstaller --onefile --windowed --name "Маршруты_Сборка" app.py
+Программа собирается в один исполняемый файл, работающий **без установленного Python**.
+
+**Способ 1 — через скрипт:**
+```batch
+build.bat
 ```
 
-Исполняемый файл появится в папке `dist/`.
+**Способ 2 — вручную:**
+```bash
+pip install pyinstaller
+pip install -r requirements.txt
+pyinstaller --noconfirm Маршруты_Сборка.spec
+```
+
+Исполняемый файл: `dist/Маршруты_Сборка.exe`
+
+**Сборка через Nuitka** (компиляция в C, быстрее и лучше защита кода):
+```batch
+build_nuitka.bat
+```
+Или вручную:
+```bash
+pip install nuitka ordered-set
+python -m nuitka --standalone --onefile --windows-console-mode=disable --enable-plugin=pyqt6 --include-data-dir=assets=assets --output-filename=Маршруты_Сборка.exe --output-dir=dist_nuitka --remove-output --assume-yes-for-downloads app.py
+```
+Результат: `dist_nuitka/Маршруты_Сборка.exe`
+
+**Системные требования** для запуска exe описаны в [docs/СИСТЕМНЫЕ_ТРЕБОВАНИЯ.md](docs/СИСТЕМНЫЕ_ТРЕБОВАНИЯ.md).
 
 ---
 

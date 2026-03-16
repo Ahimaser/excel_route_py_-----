@@ -38,7 +38,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core import data_store, excel_generator
-from ui.widgets import ToggleSwitch
+from ui.widgets import ToggleSwitch, hint_icon_button
 
 
 def _extract_institution_list(routes: Iterable[dict]) -> list[str]:
@@ -362,7 +362,7 @@ class ProductRowWidget(QWidget):
 
     ROW_HEIGHT = 70
 
-    def __init__(self, product_name: str, parent=None):
+    def __init__(self, product_name: str, parent=None, prod_map: dict | None = None):
         super().__init__(parent)
         self.product_name = product_name
         self.setMinimumHeight(self.ROW_HEIGHT)
@@ -371,7 +371,8 @@ class ProductRowWidget(QWidget):
         text_col = QVBoxLayout()
         text_col.setSpacing(2)
 
-        self.lbl_name = QLabel(product_name)
+        display_name = data_store.format_product_display_name(product_name, prod_map or {}) if prod_map else product_name
+        self.lbl_name = QLabel(display_name)
         self.lbl_name.setObjectName("cardTitle")
         self.lbl_name.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.lbl_name.setWordWrap(True)
@@ -412,7 +413,7 @@ class ProductCardWidget(QFrame):
 
     clicked = pyqtSignal(str)
 
-    def __init__(self, product_name: str, parent=None):
+    def __init__(self, product_name: str, parent=None, prod_map: dict | None = None):
         super().__init__(parent)
         self.product_name = product_name
         self._selected = False
@@ -425,7 +426,8 @@ class ProductCardWidget(QFrame):
         lay.setSpacing(6)
 
         top_row = QHBoxLayout()
-        self.lbl_name = QLabel(product_name)
+        display_name = data_store.format_product_display_name(product_name, prod_map or {}) if prod_map else product_name
+        self.lbl_name = QLabel(display_name)
         self.lbl_name.setObjectName("cardTitle")
         self.lbl_name.setWordWrap(True)
         self.lbl_name.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -1323,6 +1325,10 @@ class InstitutionsDialog(QDialog):
         lay.addWidget(widget)
         btn_row = QHBoxLayout()
         btn_row.addStretch()
+        btn_cancel = QPushButton("Отмена")
+        btn_cancel.setObjectName("btnSecondary")
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(btn_cancel)
         btn_save = QPushButton("Сохранить")
         btn_save.setObjectName("btnPrimary")
         btn_save.setDefault(True)
@@ -1368,9 +1374,22 @@ class QuantitySettingsDialog(QDialog):
         lay.setContentsMargins(24, 20, 24, 20)
         lay.setSpacing(16)
 
+        title_row = QHBoxLayout()
         lbl_title = QLabel("Настройки Количества")
         lbl_title.setObjectName("sectionTitle")
-        lay.addWidget(lbl_title)
+        title_row.addWidget(lbl_title)
+        title_row.addWidget(hint_icon_button(
+            self,
+            "Настройка отображения в штуках и округления по отделам и учреждениям.",
+            "Инструкция — Настройки Количества\n\n"
+            "1. Выберите отдел — отобразятся подотделы и карточки продуктов.\n"
+            "2. Клик по карточке продукта — настройка Шт (кол-во в 1 шт, хвостики ШК/СД).\n"
+            "3. Панель округления — общие настройки хвостика для отдела/подотдела.\n"
+            "4. «Округление по учреждениям» — отдельная настройка по учреждениям и адресам.",
+            "Инструкция",
+        ))
+        title_row.addStretch()
+        lay.addLayout(title_row)
 
         hint = QLabel(
             "Выберите отдел — подотделы отобразятся под кнопками отделов. "
@@ -1480,6 +1499,10 @@ class QuantitySettingsDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
+        btn_cancel = QPushButton("Отмена")
+        btn_cancel.setObjectName("btnSecondary")
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(btn_cancel)
         btn_save = QPushButton("Сохранить")
         btn_save.setObjectName("btnPrimary")
         btn_save.setDefault(True)
@@ -1743,7 +1766,7 @@ class QuantitySettingsDialog(QDialog):
         self.lbl_no_products.setVisible(cnt == 0)
         cols = 4
         for idx, name in enumerate(scope_products):
-            card = ProductCardWidget(name, self.cards_container)
+            card = ProductCardWidget(name, self.cards_container, prod_map=by_name)
             card.clicked.connect(self._on_card_clicked)
             prod = by_name.get(name) or {}
             preview = self._card_preview_text(prod)

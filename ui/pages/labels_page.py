@@ -1,11 +1,11 @@
 """
-labels_page.py — Страница этикеток в режиме live-preview и печати.
+labels_page.py — Страница этикеток: создание файлов для печати.
 """
 from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import pyqtSignal, Qt, QTimer
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QThread, QObject
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -19,13 +19,12 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QSplitter,
+    QProgressBar,
+    QApplication,
 )
 
-from core import data_store
-from ui.pages.labels_print_preview_dialog import (
-    LabelsPrintPreviewDialog,
-    ProductLabelsTableDialog,
-)
+from core import data_store, excel_generator
+from ui.pages.labels_print_preview_dialog import ProductLabelsTableDialog
 
 
 def _enabled_dept_items() -> list[dict]:
@@ -80,6 +79,7 @@ def _products_for_dept(dept_key: str, routes: list[dict] | None = None) -> list[
 class LabelsPage(QWidget):
     go_back = pyqtSignal()
     go_open_routes = pyqtSignal()
+    go_open_last = pyqtSignal()
     go_process_files = pyqtSignal()
 
     def __init__(self, app_state: dict):
@@ -98,19 +98,21 @@ class LabelsPage(QWidget):
         outer.addWidget(scroll)
 
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(24, 20, 24, 20)
-        lay.setSpacing(12)
+        lay.setContentsMargins(24, 16, 24, 16)
+        lay.setSpacing(16)
 
         row = QHBoxLayout()
-        title = QLabel("Этикетки: live-preview и печать")
+        title = QLabel("Этикетки: создание файлов для печати")
         title.setObjectName("sectionTitle")
         row.addWidget(title)
         row.addStretch()
         lay.addLayout(row)
 
         hint = QLabel(
-            "Выберите отдел и продукт в списке слева. Файлы этикеток содержат 3 столбца: номер маршрута, дом/строение, количество. "
-            "Создаются в папке маршрутов: Основные/этикетки/{отдел}/ или Довоз/этикетки/{отдел}/."
+            "Приложение создаёт файлы для печати этикеток (не печатает напрямую). "
+            "Файлы содержат 3 столбца: № маршрута, дом/строение, количество. "
+            "Структура: Маршруты {дата}/Основные|Увеличение/Этикетки на {дата}/{отдел|подотдел}/{продукт}.xlsx. "
+            "Папки создаются только для отделов/подотделов с включёнными этикетками."
         )
         hint.setObjectName("stepLabel")
         hint.setWordWrap(True)
@@ -119,15 +121,20 @@ class LabelsPage(QWidget):
         self.no_data_frame = QFrame()
         self.no_data_frame.setObjectName("card")
         nd_lay = QVBoxLayout(self.no_data_frame)
-        nd_lay.addWidget(QLabel("Маршруты не загружены. Откройте историю или обработайте новые файлы."))
+        nd_lay.setContentsMargins(24, 20, 24, 20)
+        nd_lay.setSpacing(12)
+        lbl_empty = QLabel("Маршруты не загружены")
+        lbl_empty.setObjectName("cardTitle")
+        nd_lay.addWidget(lbl_empty)
         row0 = QHBoxLayout()
-        btn_open = QPushButton("Открыть историю маршрутов")
-        btn_open.setObjectName("btnPrimary")
-        btn_open.clicked.connect(self.go_open_routes.emit)
+        btn_open_last = QPushButton("Открыть последние")
+        btn_open_last.setObjectName("btnPrimary")
+        btn_open_last.clicked.connect(self.go_open_last.emit)
+        btn_open_last.setToolTip("Загрузить последние сохранённые маршруты")
         btn_process = QPushButton("Обработать файлы")
         btn_process.setObjectName("btnSecondary")
         btn_process.clicked.connect(self.go_process_files.emit)
-        row0.addWidget(btn_open)
+        row0.addWidget(btn_open_last)
         row0.addWidget(btn_process)
         row0.addStretch()
         nd_lay.addLayout(row0)
@@ -138,6 +145,10 @@ class LabelsPage(QWidget):
         main_lay = QVBoxLayout(self.main_frame)
         main_lay.setContentsMargins(16, 12, 16, 12)
         main_lay.setSpacing(10)
+
+        self.lbl_summary = QLabel("")
+        self.lbl_summary.setObjectName("hintLabel")
+        main_lay.addWidget(self.lbl_summary)
 
         filters = QHBoxLayout()
         filters.addWidget(QLabel("Отдел / подотдел:"))
@@ -171,19 +182,19 @@ class LabelsPage(QWidget):
         right_lay.setContentsMargins(8, 8, 8, 8)
         right_lay.setSpacing(8)
         right_lay.addWidget(QLabel("Действия"))
-        self.lbl_selected = QLabel("Выберите продукт.")
+        self.lbl_selected = QLabel("Выберите продукт для просмотра таблицы или создайте все файлы.")
         self.lbl_selected.setObjectName("hintLabel")
         self.lbl_selected.setWordWrap(True)
         right_lay.addWidget(self.lbl_selected)
 
-        self.btn_preview = QPushButton("Предпросмотр")
-        self.btn_preview.setObjectName("btnSecondary")
-        self.btn_preview.clicked.connect(self._on_preview)
-        right_lay.addWidget(self.btn_preview)
-        self.btn_print = QPushButton("Печать этикеток")
-        self.btn_print.setObjectName("btnPrimary")
-        self.btn_print.clicked.connect(self._on_print)
-        right_lay.addWidget(self.btn_print)
+        self.btn_create_all = QPushButton("Создать файлы этикеток")
+        self.btn_create_all.setObjectName("btnPrimary")
+        self.btn_create_all.clicked.connect(self._on_create_labels)
+        self.btn_create_all.setToolTip(
+            "Создать файлы: Этикетки на {дата}/{отдел}/{продукт}.xlsx. "
+            "Учитываются особые режимы: чищенка (деление по весу), сыпучка (два файла по порогу)."
+        )
+        right_lay.addWidget(self.btn_create_all)
         right_lay.addStretch()
         splitter.addWidget(right_box)
 
@@ -197,6 +208,11 @@ class LabelsPage(QWidget):
         actions_row.addWidget(btn_settings)
         actions_row.addStretch()
         main_lay.addLayout(actions_row)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.setVisible(False)
+        main_lay.addWidget(self.progress)
 
         lay.addWidget(self.main_frame)
         lay.addStretch()
@@ -224,6 +240,10 @@ class LabelsPage(QWidget):
         self.main_frame.setVisible(has)
         if not has:
             return
+        dept_items = _enabled_dept_items()
+        routes = self._active_routes()
+        n_prods = sum(len(_products_for_dept(d["key"], routes)) for d in dept_items)
+        self.lbl_summary.setText(f"Отделов: {len(dept_items)}, продуктов: {n_prods}")
         current_type = str(self.app_state.get("fileType") or "main")
         idx_type = self.combo_type.findData(current_type)
         self.combo_type.setCurrentIndex(idx_type if idx_type >= 0 else 0)
@@ -299,13 +319,13 @@ class LabelsPage(QWidget):
 
     def _update_selected_label(self) -> None:
         p = self._selected_product()
-        has_selection = p is not None
-        self.btn_preview.setEnabled(has_selection)
-        self.btn_print.setEnabled(has_selection)
         if not p:
-            self.lbl_selected.setText("Выберите продукт.")
+            self.lbl_selected.setText("Выберите продукт для просмотра таблицы или создайте все файлы.")
             return
-        self.lbl_selected.setText(f"Продукт: {p['name']}. Файл: 3 столбца (№ маршрута, Дом, Количество).")
+        self.lbl_selected.setText(
+            f"Продукт: {p['name']}. Двойной клик — таблица этикеток. "
+            "«Создать файлы этикеток» — все файлы в папку маршрутов."
+        )
 
     def _open_labels_settings(self) -> None:
         try:
@@ -317,46 +337,88 @@ class LabelsPage(QWidget):
             import logging
             logging.getLogger("app").exception("labels_settings")
 
-    def _build_preview_dialog(self) -> LabelsPrintPreviewDialog | None:
+    def _on_create_labels(self) -> None:
         routes = self._active_routes()
         if not routes:
-            QMessageBox.warning(self, "Нет данных", "Нет маршрутов для печати этикеток.")
-            return None
-        p = self._selected_product()
-        if not p:
-            QMessageBox.warning(self, "Нет продукта", "Сначала выберите продукт.")
-            return None
-        return LabelsPrintPreviewDialog(
-            self,
-            routes=routes,
-            file_type=self.combo_type.currentData() or "main",
-            products_ref=data_store.get_ref("products") or [],
-            departments_ref=data_store.get_ref("departments") or [],
-            product_name=p["name"],
-            dept_key=self.combo_dept.currentData(),
+            QMessageBox.warning(self, "Нет данных", "Нет маршрутов для создания этикеток.")
+            return
+        file_type = self.combo_type.currentData() or "main"
+        # Папка — из blob выбранного типа (та же папка, что и маршруты за день)
+        blob = data_store.get_last_routes(file_type) or {}
+        base_dir = blob.get("saveDir") or self.app_state.get("saveDir") or data_store.get_desktop_path()
+        date_str = self.app_state.get("routesDate") or excel_generator.get_routes_date_str()
+        type_dir = excel_generator.get_routes_type_folder(base_dir, file_type, date_str)
+        labels_dir = os.path.join(type_dir, f"Этикетки на {date_str}")
+
+        self.btn_create_all.setEnabled(False)
+        self.progress.setVisible(True)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+        self._labels_thread = QThread(self)
+        self._labels_worker = _LabelsCreateWorker(
+            routes,
+            base_dir,
+            file_type,
+            data_store.get_ref("products") or [],
+            data_store.get_ref("departments") or [],
+            date_str=date_str,
         )
+        self._labels_out_dir = labels_dir
+        self._labels_worker.moveToThread(self._labels_thread)
+        self._labels_thread.started.connect(self._labels_worker.run)
+        self._labels_worker.finished.connect(self._on_labels_created)
+        self._labels_worker.error.connect(self._on_labels_error)
+        self._labels_worker.finished.connect(self._labels_thread.quit)
+        self._labels_worker.error.connect(self._labels_thread.quit)
+        self._labels_thread.finished.connect(self._labels_worker.deleteLater)
+        self._labels_thread.finished.connect(self._labels_thread.deleteLater)
+        self._labels_thread.start()
 
-    def _on_preview(self) -> None:
-        try:
-            dlg = self._build_preview_dialog()
-            if dlg is not None:
-                dlg.exec()
-        except Exception as exc:
-            QMessageBox.critical(
-                self,
-                "Ошибка предпросмотра",
-                f"Не удалось открыть предпросмотр этикеток:\n\n{exc}",
+    def _on_labels_created(self, created: list) -> None:
+        QApplication.restoreOverrideCursor()
+        self.progress.setVisible(False)
+        self.btn_create_all.setEnabled(True)
+        if created:
+            labels_dir = getattr(self, "_labels_out_dir", "")
+            QMessageBox.information(
+                self, "Готово",
+                f"Создано файлов: {len(created)}\n\n{labels_dir}",
             )
+        else:
+            QMessageBox.information(self, "Нет файлов", "Нет этикеток для создания.")
 
-    def _on_print(self) -> None:
+    def _on_labels_error(self, msg: str) -> None:
+        QApplication.restoreOverrideCursor()
+        self.progress.setVisible(False)
+        self.btn_create_all.setEnabled(True)
+        QMessageBox.critical(self, "Ошибка", f"Ошибка при создании этикеток:\n{msg}")
+
+
+class _LabelsCreateWorker(QObject):
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, routes: list, base_dir: str, file_type: str, products_ref: list,
+                 departments_ref: list, date_str: str | None = None):
+        super().__init__()
+        import copy
+        self.routes = copy.deepcopy(routes)
+        self.base_dir = base_dir
+        self.file_type = file_type
+        self.products_ref = products_ref
+        self.departments_ref = departments_ref
+        self.date_str = date_str
+
+    def run(self) -> None:
         try:
-            dlg = self._build_preview_dialog()
-            if dlg is None:
-                return
-            dlg.exec()
-        except Exception as exc:
-            QMessageBox.critical(
-                self,
-                "Ошибка печати",
-                f"Не удалось открыть диалог печати:\n\n{exc}",
+            created = excel_generator.generate_simple_labels(
+                self.routes,
+                self.base_dir,
+                self.file_type,
+                self.products_ref,
+                self.departments_ref,
+                date_str=self.date_str,
             )
+            self.finished.emit(created)
+        except Exception as exc:
+            self.error.emit(str(exc))

@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
     QFrame, QTableView, QLineEdit, QApplication,
     QComboBox, QHeaderView, QAbstractItemView,
     QMessageBox, QFileDialog, QProgressBar, QMenu, QScrollArea,
-    QStyledItemDelegate,
+    QStyledItemDelegate, QStackedWidget,
 )
 from PyQt6.QtCore import (
     Qt, pyqtSignal, QThread, QObject, QTimer, QEvent,
@@ -630,11 +630,26 @@ class PreviewGeneralPage(QWidget):
         content_row.addWidget(self.table, stretch=1)
 
         # Боковая панель
+        side_stack = QStackedWidget()
+        side_stack.setMinimumWidth(220)
+        side_stack.setMaximumWidth(320)
+        self.edit_panel_placeholder = QFrame()
+        self.edit_panel_placeholder.setObjectName("editPanel")
+        ph_lay = QVBoxLayout(self.edit_panel_placeholder)
+        ph_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ph_hint = QLabel("Выберите маршрут\nдля редактирования")
+        ph_hint.setObjectName("panelCaption")
+        ph_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ph_hint.setWordWrap(True)
+        ph_lay.addWidget(ph_hint)
         self.edit_panel = EditPanel(self)
         self.edit_panel.setVisible(False)
         self.edit_panel.saved.connect(self._on_route_num_saved)
         self.edit_panel.closed.connect(self._on_panel_closed)
-        content_row.addWidget(self.edit_panel)
+        side_stack.addWidget(self.edit_panel_placeholder)
+        side_stack.addWidget(self.edit_panel)
+        self._side_stack = side_stack
+        content_row.addWidget(side_stack)
 
         root_lay.addLayout(content_row, stretch=1)
 
@@ -746,12 +761,16 @@ class PreviewGeneralPage(QWidget):
         self.combo_product.blockSignals(True)
         self.combo_product.clear()
         self.combo_product.addItem("Все продукты", "")
+        prod_map = data_store.get_products_map()
         for p in sorted(
             self.app_state.get("uniqueProducts", []), key=lambda x: x["name"]
         ):
-            self.combo_product.addItem(p["name"], p["name"])
+            name = p["name"]
+            display = data_store.format_product_display_name(name, prod_map)
+            self.combo_product.addItem(display, name)
         self.combo_product.blockSignals(False)
         self.edit_panel.clear()
+        self._set_edit_panel_visible(False)
 
         # Баннер и блокировка кнопки при непривязанных продуктах (4A)
         unassigned = self._check_unassigned_products()
@@ -850,11 +869,19 @@ class PreviewGeneralPage(QWidget):
 
         all_routes     = self.app_state.get("filteredRoutes", [])
         excluded_count = sum(1 for r in all_routes if r.get("excluded"))
+        total_active   = len(all_routes) - excluded_count
         self.lbl_count.setText(f"{visible_count} маршрутов")
         self.lbl_excluded.setText(
             f"Исключено: {excluded_count}" if excluded_count else ""
         )
-        self._update_no_num_label(no_num_count)
+        self._update_no_num_label(visible_count, no_num_count)
+
+        set_status = self.app_state.get("set_status")
+        if callable(set_status) and total_active > 0:
+            if visible_count < total_active:
+                set_status(f"Показано {visible_count} из {total_active} маршрутов", 3000)
+            else:
+                set_status(f"Показано {visible_count} маршрутов", 3000)
 
         log.debug("_on_render_done done")
 
@@ -921,6 +948,7 @@ class PreviewGeneralPage(QWidget):
         self.btn_sort.setText("↑ По возрастанию")
         self.app_state["sortAsc"] = True
         self.edit_panel.clear()
+        self._set_edit_panel_visible(False)
         self._render_table()
 
     # ─────────────────────────── Клик по строке ───────────────────────────
@@ -931,7 +959,9 @@ class PreviewGeneralPage(QWidget):
             return
         if rd["type"] != "route":
             self.edit_panel.clear()
+            self._set_edit_panel_visible(False)
             return
+        self._set_edit_panel_visible(True)
         self.edit_panel.load(rd["route_ref"])
 
     def _on_route_num_saved(self, route: dict, new_val: str) -> None:
@@ -978,17 +1008,35 @@ class PreviewGeneralPage(QWidget):
         # Перезапускаем рендер — пересортировка по новому номеру
         self._render_table()
 
-        # Обновляем счётчик неопределённых номеров
-        no_num_count = sum(
-            1 for r in all_routes
-            if not r.get("excluded")
-            and (r.get("routeNum") == _UNDEFINED or not str(r.get("routeNum", "")).strip())
-        )
-        self._update_no_num_label(no_num_count)
-        log.debug("route_num_saved done, no_num_count=%d", no_num_count)
+        # Обновляем счётчик неопределённых номеров (те же фильтры, что в RenderWorker)
+        search_lower = self._search_text.lower()
+        filter_prod = self._filter_product
+        visible_count = 0
+        no_num_count = 0
+        for r in all_routes:
+            if r.get("excluded"):
+                continue
+            if search_lower:
+                addr = r.get("address", "").lower()
+                num = str(r.get("routeNum", "")).lower()
+                if search_lower not in addr and search_lower not in num:
+                    continue
+            if filter_prod:
+                if not any(p.get("name") == filter_prod for p in r.get("products", [])):
+                    continue
+            visible_count += 1
+            rnum = r.get("routeNum", "")
+            if rnum == _UNDEFINED or not str(rnum).strip():
+                no_num_count += 1
+        self._update_no_num_label(visible_count, no_num_count)
+        log.debug("route_num_saved done, visible=%d no_num=%d", visible_count, no_num_count)
 
-    def _update_no_num_label(self, no_num_count: int) -> None:
-        """Обновляет метку: красный фон если есть неопределённые, зелёный если все определены."""
+    def _update_no_num_label(self, visible_count: int, no_num_count: int) -> None:
+        """Обновляет метку: красный если есть неопределённые среди видимых, зелёный если все определены.
+        Скрывает метку, когда видимых маршрутов нет (visible_count == 0)."""
+        if visible_count == 0:
+            self.lbl_no_num.setVisible(False)
+            return
         self.lbl_no_num.setVisible(True)
         if no_num_count > 0:
             self.lbl_no_num.setText(f"Маршруты не определены: {no_num_count}")
@@ -1000,7 +1048,14 @@ class PreviewGeneralPage(QWidget):
         self.lbl_no_num.style().polish(self.lbl_no_num)
 
     def _on_panel_closed(self) -> None:
+        self._set_edit_panel_visible(False)
         self.table.clearSelection()
+
+    def _set_edit_panel_visible(self, visible: bool) -> None:
+        if visible:
+            self._side_stack.setCurrentWidget(self.edit_panel)
+        else:
+            self._side_stack.setCurrentWidget(self.edit_panel_placeholder)
 
     # ─────────────────────────── Контекстное меню ─────────────────────────
 
@@ -1065,6 +1120,7 @@ class PreviewGeneralPage(QWidget):
             route["excluded"] = not route.get("excluded", False)
             self._render_table()
         elif action == act_edit:
+            self._set_edit_panel_visible(True)
             self.edit_panel.load(route)
 
     def _delete_routes(self, route_refs: list) -> None:
@@ -1086,6 +1142,7 @@ class PreviewGeneralPage(QWidget):
         self.app_state["routes"] = routes
         self.app_state["filteredRoutes"] = filtered
         self.edit_panel.clear()
+        self._set_edit_panel_visible(False)
         self._render_table()
         if hasattr(self.app_state.get("set_status"), "__call__"):
             self.app_state["set_status"](f"Удалено маршрутов: {n}")

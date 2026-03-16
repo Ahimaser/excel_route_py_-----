@@ -133,8 +133,8 @@ class HomePage(QWidget):
         outer.addWidget(scroll)
 
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(24, 20, 24, 20)
-        lay.setSpacing(10)
+        lay.setContentsMargins(24, 16, 24, 16)
+        lay.setSpacing(16)
 
         lbl_h = QLabel("Обработка файлов")
         lbl_h.setObjectName("sectionTitle")
@@ -453,7 +453,8 @@ class HomePage(QWidget):
         self.app_state["deptFilesCreated"] = False
 
         if routes and hasattr(self.app_state.get("set_status"), "__call__"):
-            self.app_state["set_status"](f"Загружено {len(routes)} маршрутов")
+            n_prods = len(unique_products)
+            self.app_state["set_status"](f"Загружено {len(routes)} маршрутов, {n_prods} продуктов")
 
         save_dir = self.app_state.get("saveDir") or data_store.get_setting("defaultSaveDir")
         data_store.save_last_routes(

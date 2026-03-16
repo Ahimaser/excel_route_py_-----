@@ -78,9 +78,9 @@ class MainWindow(QMainWindow):
     RIBBON_TAB_HINTS = {
         "dashboard": "Стартовая страница: описание, место сохранения, отчёт по последним маршрутам.",
         "home": "Загрузка XLS-файлов маршрутов (ШК/СД), выбор папки сохранения и даты.",
-        "labels": "Создание и печать этикеток по отделам и продуктам.",
+        "labels": "Создание файлов этикеток по отделам и продуктам.",
         "preview_general": "Таблица общих маршрутов: поиск, фильтр, редактирование, исключение. Переход к маршрутам по отделам.",
-        "preview_dept": "Маршруты по отделам: вкладки отделов, создание XLS-файлов и этикеток.",
+        "preview_dept": "Маршруты по отделам: вкладки отделов, создание XLS-файлов.",
     }
 
     def _make_header(self) -> QWidget:
@@ -122,20 +122,15 @@ class MainWindow(QMainWindow):
             self.navigate_to.emit(self.RIBBON_PAGES[index])
 
     def _update_routes_dependent_tabs(self) -> None:
-        """Включает/выключает вкладки Этикетки, Общие маршруты, По отделам — только при наличии маршрутов.
-        Для вкладки «Этикетки» дополнительно требуется создание файлов общих и по отделам."""
+        """Включает/выключает вкладки Этикетки, Общие маршруты, По отделам — только при наличии маршрутов."""
         routes = self.app_state.get("filteredRoutes") or self.app_state.get("routes") or []
         active = sum(1 for r in routes if not r.get("excluded"))
         has_routes = active > 0
-        general_ok = bool(self.app_state.get("generalFileCreated"))
-        dept_ok = bool(self.app_state.get("deptFilesCreated"))
-        labels_enabled = has_routes and general_ok and dept_ok
         hint_disabled = "Сначала обработайте файлы или откройте маршруты из истории"
-        hint_labels_disabled = "Сначала создайте файлы общих маршрутов и по отделам на странице «По отделам»"
         for i, name in enumerate(self.RIBBON_PAGES):
             if name == "labels":
-                self.ribbon_tabs.setTabEnabled(i, labels_enabled)
-                self.ribbon_tabs.setTabToolTip(i, hint_labels_disabled if not labels_enabled else self.RIBBON_TAB_HINTS.get(name, ""))
+                self.ribbon_tabs.setTabEnabled(i, has_routes)
+                self.ribbon_tabs.setTabToolTip(i, hint_disabled if not has_routes else self.RIBBON_TAB_HINTS.get(name, ""))
             elif name in ("preview_general", "preview_dept"):
                 self.ribbon_tabs.setTabEnabled(i, has_routes)
                 self.ribbon_tabs.setTabToolTip(i, hint_disabled if not has_routes else self.RIBBON_TAB_HINTS.get(name, ""))
@@ -158,6 +153,11 @@ class MainWindow(QMainWindow):
 
         # ── Файл (Справочники, Настройки, Помощь) ───────────────────────────
         file_menu = mb.addMenu("Файл")
+        act_process = QAction("Обработать файлы\tCtrl+O", self)
+        act_process.setShortcut(QKeySequence("Ctrl+O"))
+        act_process.triggered.connect(lambda: self.navigate_to.emit("home"))
+        file_menu.addAction(act_process)
+        file_menu.addSeparator()
 
         ref_sub = file_menu.addMenu("Справочники")
         act_depts = QAction("Отделы и продукты\tCtrl+D", self)
@@ -170,20 +170,32 @@ class MainWindow(QMainWindow):
         ref_sub.addAction(act_products)
 
         settings_sub = file_menu.addMenu("Настройки")
+        # Данные
         act_restore = QAction("Восстановить данные из резервной копии", self)
         act_restore.triggered.connect(self._on_restore_data)
         settings_sub.addAction(act_restore)
-        settings_sub.addSeparator()
         act_templates = QAction("Шаблоны Excel\tCtrl+T", self)
         act_templates.setShortcut(QKeySequence("Ctrl+T"))
         act_templates.triggered.connect(lambda: self.navigate_to.emit("templates"))
         settings_sub.addAction(act_templates)
+        settings_sub.addSeparator()
+        # Создание файлов
         act_file_params = QAction("Параметры создания файлов", self)
         act_file_params.triggered.connect(self._open_file_creation_settings)
         settings_sub.addAction(act_file_params)
+        act_save_mode = QAction("Режимы сохранения (ШК/СД)", self)
+        act_save_mode.triggered.connect(self._open_save_mode_settings)
+        settings_sub.addAction(act_save_mode)
+        settings_sub.addSeparator()
+        # Расчёты
         act_quantity = QAction("Настройки Количества", self)
         act_quantity.triggered.connect(self._open_quantity_settings)
         settings_sub.addAction(act_quantity)
+        act_savings = QAction("Экономия", self)
+        act_savings.triggered.connect(self._open_savings_settings)
+        settings_sub.addAction(act_savings)
+        settings_sub.addSeparator()
+        # Внешний вид
         act_appearance = QAction("Оформление", self)
         act_appearance.triggered.connect(self._open_appearance_settings)
         settings_sub.addAction(act_appearance)
@@ -283,6 +295,15 @@ class MainWindow(QMainWindow):
             import logging
             logging.getLogger("app").exception("file_creation_settings")
 
+    def _open_save_mode_settings(self):
+        try:
+            from ui.pages.save_mode_settings_dialog import open_save_mode_settings_dialog
+            open_save_mode_settings_dialog(self)
+        except Exception:
+            import traceback
+            import logging
+            logging.getLogger("app").exception("save_mode_settings")
+
     def _open_quantity_settings(self):
         try:
             from ui.pages.quantity_settings_dialog import open_quantity_settings_dialog
@@ -295,6 +316,18 @@ class MainWindow(QMainWindow):
             import traceback
             import logging
             logging.getLogger("app").exception("quantity_settings")
+
+    def _open_savings_settings(self):
+        try:
+            from ui.pages.savings_dialog import open_savings_dialog
+            open_savings_dialog(self, self.app_state)
+            cb = self.app_state.get("refresh_preview_pages")
+            if callable(cb):
+                cb()
+        except Exception:
+            import traceback
+            import logging
+            logging.getLogger("app").exception("savings_settings")
 
     def _open_appearance_settings(self):
         try:
@@ -335,7 +368,7 @@ class MainWindow(QMainWindow):
             "<p><b>3. Маршруты по отделам.</b> Выберите отдел во вкладках, укажите папку сохранения. "
             "«Создать файлы для всех отделов» — генерация XLS-файлов и этикеток. При непривязанных продуктах появится баннер — "
             "откройте «Отделы и продукты» для привязки.</p>"
-            "<p><b>4. Этикетки.</b> Выберите отдел и продукт, нажмите «Предпросмотр» или «Печать этикеток». "
+            "<p><b>4. Этикетки.</b> Выберите отдел и тип, нажмите «Создать файлы этикеток». "
             "В «Настройках этикеток» настройте режимы (чищенка, сыпучка) по отделам.</p>"
             "<p><b>5. Справочники.</b> Меню «Файл» → «Справочники»: «Отделы и продукты» — иерархия отделов и привязка продуктов; "
             "«Продукты» — алиасы (варианты написания → каноническое); «Шаблоны» — структура столбцов XLS по отделам.</p>"

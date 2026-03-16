@@ -90,7 +90,7 @@ PAGE_TITLES = {
 PAGE_HINTS_SHORT = {
     "dashboard": "Стартовая страница: описание, место сохранения, отчёт по последним маршрутам.",
     "home": "Загрузка XLS-файлов маршрутов (ШК/СД), выбор папки сохранения и даты.",
-    "labels": "Создание и печать этикеток по отделам и продуктам.",
+    "labels": "Создание файлов этикеток по отделам и продуктам.",
     "preview_general": "Таблица общих маршрутов: поиск, фильтр, редактирование. Переход к маршрутам по отделам.",
     "preview_dept": "Маршруты по отделам: вкладки отделов, создание XLS-файлов и этикеток.",
 }
@@ -114,10 +114,10 @@ PAGE_HINTS_LONG = {
     ),
     "labels": (
         "Инструкция — Этикетки\n\n"
-        "1. Убедитесь, что маршруты загружены (обработайте файлы или откройте из истории).\n"
-        "2. Выберите отдел и продукт в списке слева.\n"
-        "3. «Предпросмотр» — просмотр таблицы этикеток перед печатью.\n"
-        "4. «Печать этикеток» — создание PDF и печать (требуется Excel или PyMuPDF).\n"
+        "1. Приложение создаёт файлы для печати этикеток (не печатает напрямую).\n"
+        "2. «Создать файлы этикеток» — создаёт все файлы: Этикетки на {дата}/{отдел}/{продукт}.xlsx.\n"
+        "3. Особые режимы (без шаблонов, только логика): чищенка — деление по макс. кг на этикетку; сыпучка — два файла по порогу.\n"
+        "4. Двойной клик по продукту — таблица этикеток.\n"
         "5. «Настройки этикеток» — включение отделов, режимы чищенка/сыпучка."
     ),
     "preview_general": (
@@ -134,7 +134,7 @@ PAGE_HINTS_LONG = {
         "Инструкция — Маршруты по отделам\n\n"
         "1. Вкладки сверху — выбор отдела; подотделы отображаются под ними.\n"
         "2. «Выбрать папку» — указать место сохранения (при открытии из истории подставляется автоматически).\n"
-        "3. «Создать файлы для всех отделов» — генерация XLS-файлов и этикеток.\n"
+        "3. «Создать файлы для всех отделов» — генерация XLS-файлов маршрутов.\n"
         "4. Ctrl+колёсико мыши над таблицей — изменить размер шрифта.\n"
         "5. При непривязанных продуктах появится баннер — откройте «Отделы и продукты»."
     ),
@@ -154,7 +154,21 @@ def main():
     if not license_check.check_license(app):
         sys.exit(1)
     app.setOrganizationName("RouteManager")
-    assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+    # Путь к assets: PyInstaller (_MEIPASS), Nuitka (__compiled__.containing_dir), иначе — рядом с app.py
+    if getattr(sys, "frozen", False):
+        if hasattr(sys, "_MEIPASS"):
+            _base_path = sys._MEIPASS  # PyInstaller
+        else:
+            # Nuitka: __compiled__ есть только при сборке через Nuitka
+            _compiled = globals().get("__compiled__")
+            _base_path = (
+                _compiled.containing_dir
+                if _compiled is not None
+                else os.path.dirname(os.path.abspath(__file__))
+            )
+    else:
+        _base_path = os.path.dirname(os.path.abspath(__file__))
+    assets_dir = os.path.join(_base_path, "assets")
     app_icon_path = os.path.join(assets_dir, "app_icon.png")
     if not os.path.isfile(app_icon_path):
         app_icon_path = os.path.join(assets_dir, "app_icon.svg")
@@ -352,8 +366,9 @@ def main():
 
     # ── Загрузка маршрутов и переход в превью ─────────────────────────────
 
-    def _apply_saved_blob_and_open_preview(data: dict, fallback_file_type: str) -> None:
-        """Применяет данные сохранения к app_state и переходит в preview_general."""
+    def _apply_saved_blob_and_open_preview(data: dict, fallback_file_type: str,
+                                           target: str = "preview_general") -> None:
+        """Применяет данные сохранения к app_state и переходит на target страницу."""
         import copy
         from core import data_store
         routes = copy.deepcopy(data.get("routes") or [])
@@ -361,9 +376,10 @@ def main():
         filtered = copy.deepcopy(data.get("filteredRoutes") or data.get("routes") or [])
         file_type = data.get("fileType") or fallback_file_type
         n = len(filtered)
+        n_prods = len(unique_products)
         set_status = window.app_state.get("set_status")
         if callable(set_status) and n:
-            set_status(f"Загружено {n} маршрутов")
+            set_status(f"Загружено {n} маршрутов, {n_prods} продуктов")
         window.app_state["institutionList"] = data_store.get_institution_list_from_routes(filtered)
         # routesDate в формате DD.MM.YYYY из date или timestamp
         date_raw = data.get("date") or (data.get("timestamp") or "")[:10]
@@ -387,10 +403,10 @@ def main():
         if data.get("saveDir"):
             update["saveDir"] = data["saveDir"]
         window.app_state.update(update)
-        navigate("preview_general")
+        navigate(target)
 
-    def _load_last_and_go_preview(file_type: str):
-        """Загружает последние маршруты (main/increase) в app_state и переходит в preview_general."""
+    def _load_last_and_go_preview(file_type: str, target: str = "preview_general"):
+        """Загружает последние маршруты (main/increase) в app_state и переходит на target страницу."""
         from core import data_store
         data = data_store.get_last_routes(file_type)
         if not data:
@@ -400,7 +416,7 @@ def main():
                 "Нет сохранённых маршрутов для выбранного типа. Сначала обработайте файлы."
             )
             return
-        _apply_saved_blob_and_open_preview(data, file_type)
+        _apply_saved_blob_and_open_preview(data, file_type, target=target)
 
     def _open_history_and_go_preview(file_type: str) -> None:
         """Открывает диалог «История маршрутов», выбирает запись и переходит в preview."""
@@ -425,6 +441,7 @@ def main():
                 page.open_history.connect(lambda: _open_history_and_go_preview(None))
                 page.go_last_main.connect(lambda: _load_last_and_go_preview("main"))
                 page.go_last_increase.connect(lambda: _load_last_and_go_preview("increase"))
+                page.go_process_files.connect(lambda: navigate("home"))
 
             elif name == "home":
                 from ui.pages.home_page import HomePage
@@ -435,6 +452,7 @@ def main():
                 from ui.pages.labels_page import LabelsPage
                 page = LabelsPage(window.app_state)
                 page.go_open_routes.connect(lambda: _open_history_and_go_preview("main"))
+                page.go_open_last.connect(lambda: _load_last_and_go_preview("main", "labels"))
                 page.go_process_files.connect(lambda: navigate("home"))
 
             elif name == "preview_general":
@@ -448,6 +466,8 @@ def main():
                 from ui.pages.preview_dept_page import PreviewDeptPage
                 page = PreviewDeptPage(window.app_state)
                 page.go_clear_routes.connect(_clear_routes_and_go_dashboard)
+                page.go_open_last.connect(lambda: _load_last_and_go_preview("main", "preview_dept"))
+                page.go_process_files.connect(lambda: navigate("home"))
 
             else:
                 log.warning("Неизвестная страница: %s", name)

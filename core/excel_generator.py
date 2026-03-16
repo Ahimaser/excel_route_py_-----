@@ -225,18 +225,36 @@ def get_routes_day_folder(base_dir: str, date_str: str | None = None) -> str:
     return os.path.join(base_dir, expected_tail)
 
 
-def get_routes_type_folder(base_dir: str, file_type: str, date_str: str | None = None) -> str:
-    """Папка типа: day_dir/Основные или day_dir/Увеличение. Не дублирует, если base_dir уже она."""
-    sub = "Увеличение" if file_type == "increase" else "Основные"
+def get_routes_type_folder(
+    base_dir: str,
+    file_type: str,
+    date_str: str | None = None,
+    route_category: str | None = None,
+) -> str:
+    """
+    Папка типа: day_dir/Школы, day_dir/Сады (для main) или day_dir/Увеличение.
+    route_category: «ШК» → Школы, «СД» → Сады (только для file_type main).
+    """
+    if file_type == "increase":
+        sub = "Увеличение"
+    elif file_type == "main" and route_category:
+        sub = "Школы" if route_category == "ШК" else "Сады"
+    else:
+        sub = "Основные"
     if os.path.basename(os.path.normpath(base_dir)) == sub:
         return base_dir
     day_dir = get_routes_day_folder(base_dir, date_str)
     return os.path.join(day_dir, sub)
 
 
-def get_general_routes_path(base_dir: str, file_type: str, date_str: str | None = None) -> str:
+def get_general_routes_path(
+    base_dir: str,
+    file_type: str,
+    date_str: str | None = None,
+    route_category: str | None = None,
+) -> str:
     date_part = date_str or get_routes_date_str()
-    type_dir = get_routes_type_folder(base_dir, file_type, date_part)
+    type_dir = get_routes_type_folder(base_dir, file_type, date_part, route_category)
     return os.path.join(type_dir, f"Общие маршруты {date_part}.xls")
 
 
@@ -246,19 +264,27 @@ def get_dept_routes_path(
     dept_name: str,
     date_str: str | None = None,
     parent_dept_name: str | None = None,
+    suffix: str | None = None,
+    route_category: str | None = None,
 ) -> str:
     """
     Путь к файлу маршрутов отдела.
-    Файлы по отделам — в той же папке Основные/Увеличение, что и общие маршруты.
-    Для отдела: Основные/{отдел}/Сборка {отдел} {дата}.xls
-    Для подотдела: Основные/{родительский_отдел}/Сборка {подотдел} {дата}.xls (файл в папке отдела)
+    Отдел: Школы|Сады|Основные|Увеличение/{отдел}/Сборка {отдел} {дата}.xls
+    suffix: для сыпучки — "> 4 кг" или "<= 4 кг".
     """
     date_part = date_str or get_routes_date_str()
-    type_dir = get_routes_type_folder(base_dir, file_type, date_str)
+    type_dir = get_routes_type_folder(base_dir, file_type, date_str, route_category)
     safe_name = _safe_filename(dept_name)
-    folder_name = _safe_filename(parent_dept_name) if parent_dept_name else safe_name
-    dept_folder = os.path.join(type_dir, folder_name)
-    return os.path.join(dept_folder, f"Сборка {safe_name} {date_part}.xls")
+    if parent_dept_name:
+        dept_folder = os.path.join(
+            type_dir,
+            _safe_filename(parent_dept_name),
+            _safe_filename(dept_name),
+        )
+    else:
+        dept_folder = os.path.join(type_dir, safe_name)
+    mid = f" {_safe_filename(suffix)}" if suffix else ""
+    return os.path.join(dept_folder, f"Сборка {safe_name}{mid} {date_part}.xls")
 
 
 def get_dept_product_file_path(
@@ -268,26 +294,60 @@ def get_dept_product_file_path(
     product_names: list[str],
     date_str: str | None = None,
     parent_dept_name: str | None = None,
+    route_category: str | None = None,
 ) -> str:
     """
-    Путь к файлу маршрутов по группе продуктов (режим «разделить по продуктам»).
-    Файлы в папке отдела: Основные/{отдел}/Сборка {продукт1}, {продукт2} {дата}.xls
-    Для подотдела: Основные/{родитель}/Сборка {подотдел} — {продукт1}, {продукт2} {дата}.xls
+    Путь к файлу маршрутов по группе продуктов.
     """
     date_part = date_str or get_routes_date_str()
-    type_dir = get_routes_type_folder(base_dir, file_type, date_str)
+    type_dir = get_routes_type_folder(base_dir, file_type, date_str, route_category)
     products_part = ", ".join(product_names) if product_names else "Продукт"
     safe_products = _safe_filename(products_part)
     if len(safe_products) > 80:
         safe_products = safe_products[:77] + "..."
-    folder_name = _safe_filename(parent_dept_name) if parent_dept_name else _safe_filename(dept_name)
-    dept_folder = os.path.join(type_dir, folder_name)
     if parent_dept_name:
+        dept_folder = os.path.join(
+            type_dir,
+            _safe_filename(parent_dept_name),
+            _safe_filename(dept_name),
+        )
         safe_dept = _safe_filename(dept_name)
         filename = f"Сборка {safe_dept} — {safe_products} {date_part}.xls"
     else:
+        dept_folder = os.path.join(type_dir, _safe_filename(dept_name))
         filename = f"Сборка {safe_products} {date_part}.xls"
     return os.path.join(dept_folder, filename)
+
+
+def get_dept_by_product_path(
+    base_dir: str,
+    file_type: str,
+    product_name: str,
+    dept_name: str,
+    date_str: str | None = None,
+    parent_dept_name: str | None = None,
+    suffix: str | None = None,
+    route_category: str | None = None,
+) -> str:
+    """
+    Путь к файлу маршрутов по продукту. Для сыпучки — папки: .../больше 4 кг/ и .../меньше 4 кг/
+    """
+    date_part = date_str or get_routes_date_str()
+    type_dir = get_routes_type_folder(base_dir, file_type, date_str, route_category)
+    safe_prod = _safe_filename(product_name) or "Продукт"
+    if parent_dept_name:
+        base_folder = os.path.join(
+            type_dir,
+            _safe_filename(parent_dept_name),
+            _safe_filename(dept_name),
+        )
+    else:
+        base_folder = os.path.join(type_dir, _safe_filename(dept_name))
+    if suffix:
+        by_product_dir = os.path.join(base_folder, _safe_filename(suffix))
+    else:
+        by_product_dir = os.path.join(base_folder, "По продуктам")
+    return os.path.join(by_product_dir, f"Сборка {safe_prod} {date_part}.xls")
 
 
 def calc_pcs(quantity: float, pcs_per_unit: float, round_up: bool = True) -> int:
@@ -358,7 +418,13 @@ def _apply_pcs(routes: list[dict], prod_map: dict[str, dict], group_dept_key: st
             mult = float(sp.get("quantityMultiplier", 1.0) or 1.0)
             if qty is not None:
                 try:
-                    display_qty = float(qty) * mult
+                    qty_val = float(qty)
+                    unit = (prod.get("unit") or sp.get("unit") or "").strip().lower()
+                    if unit != "шт":
+                        savings_pct = data_store.get_savings_percent_for_address(addr)
+                        if savings_pct > 0:
+                            qty_val = qty_val * (1.0 - savings_pct / 100.0)
+                    display_qty = qty_val * mult
                     prod["displayQuantity"] = display_qty
                 except (ValueError, TypeError):
                     prod["displayQuantity"] = qty
@@ -490,11 +556,37 @@ def _safe_filename(name: str) -> str:
 
 def extract_house_number(address: str) -> str:
     """
-    Извлекает из адреса номер дома, строения, корпуса и/или цифры перед № (U+2116).
-    Поддерживает смешанный формат: "дом 3 строение 2", "д. 2 корпус 1", "д.5", "стр. 2" и т.д.
-    Возвращает одну строку с найденными значениями через запятую (например "3, стр. 2, корп. 1").
+    Извлекает из адреса номер дома, строения, корпуса, владения.
+    Поддерживает: "дом 3", "д. 5", "вл. 2", "ул. Ленина 5", "..., 5" и т.д.
+    Номер учреждения (Школа 109, 109/1) не извлекается — в этикетках не отображается.
     """
-    return _extract_house_parts(address, include_route_num=True)
+    result = _extract_house_parts(address, include_route_num=True)
+    if result:
+        return result
+    return _extract_house_fallback(address)
+
+
+def _extract_house_fallback(address: str) -> str:
+    """
+    Fallback: число в конце адреса как номер дома (ул. Ленина 5, ..., 5).
+    Номер учреждения (Школа 109, 109/1) не возвращается.
+    """
+    if not address:
+        return ""
+    s = str(address).strip()
+    # Адрес учреждения — не извлекаем номер (109, 109/1 и т.п.)
+    if re.search(r"(?:Школа|Сад|ДОУ|Детский\s+сад|Гимназия|Лицей)\s+\d", s, re.I):
+        return ""
+    if re.match(r"^\s*\d{3,4}(?:/\d+)?\b", s):
+        return ""
+    # Убираем "кв. N" в конце
+    s_no_apt = re.sub(r",?\s*кв\.?\s*\d+\s*$", "", s, flags=re.I)
+    s_no_apt = re.sub(r",?\s*квартира\s*\d+\s*$", "", s_no_apt, flags=re.I)
+    # Число в конце: "ул. Ленина 5", "..., 5"
+    m = re.search(r"[,;\s](\d+(?:/\d+)?)\s*$", s_no_apt)
+    if m:
+        return m.group(1)
+    return ""
 
 
 def _strip_route_letter_from_house(house_part: str) -> str:
@@ -624,6 +716,45 @@ def _label_print_mode_for_dept(dept_key: str | None, departments_ref: list | Non
                     return "sypuchka"
                 return "default"
     return "default"
+
+
+def _split_routes_by_sypuchka(
+    routes: list[dict],
+    threshold: float,
+) -> tuple[list[dict], list[dict]]:
+    """
+    Делит маршруты по порогу сыпучки: > threshold — в первый список, <= threshold — во второй.
+    В каждом маршруте оставляются только продукты, попадающие в соответствующую группу.
+    """
+    above: list[dict] = []
+    below: list[dict] = []
+    for r in routes:
+        prods_above = []
+        prods_below = []
+        for p in r.get("products", []):
+            try:
+                q = float(p.get("displayQuantity", p.get("quantity")) or 0)
+            except (TypeError, ValueError):
+                q = 0.0
+            if q > threshold:
+                prods_above.append(p)
+            else:
+                prods_below.append(p)
+        if prods_above:
+            above.append({
+                "routeNum": r.get("routeNum", ""),
+                "address": r.get("address", ""),
+                "routeCategory": r.get("routeCategory") or "ШК",
+                "products": prods_above,
+            })
+        if prods_below:
+            below.append({
+                "routeNum": r.get("routeNum", ""),
+                "address": r.get("address", ""),
+                "routeCategory": r.get("routeCategory") or "ШК",
+                "products": prods_below,
+            })
+    return above, below
 
 
 def _label_rules_for_dept(dept_key: str | None, departments_ref: list | None) -> dict:
@@ -1570,6 +1701,22 @@ def labels_preview_rows(
     return rows
 
 
+def _write_simple_label_xlsx(items: list[tuple[str, str, object]], save_path: str) -> None:
+    """Записывает файл этикеток: 3 столбца (№ маршрута, Дом, Количество). Без шаблонов."""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Этикетки"
+    ws.cell(row=1, column=1, value="№ маршрута")
+    ws.cell(row=1, column=2, value="Дом")
+    ws.cell(row=1, column=3, value="Количество")
+    for row_idx, (route_num, house, qty) in enumerate(items, start=2):
+        ws.cell(row=row_idx, column=1, value=route_num)
+        ws.cell(row=row_idx, column=2, value=house)
+        ws.cell(row=row_idx, column=3, value=qty if qty is not None else "")
+    wb.save(save_path)
+
+
 def generate_simple_labels(
     routes: list[dict],
     base_dir: str,
@@ -1579,12 +1726,12 @@ def generate_simple_labels(
     date_str: str | None = None,
 ) -> list[str]:
     """
-    Создаёт файлы этикеток без шаблонов.
-    Формат: 3 столбца — № маршрута, Дом (из адреса), Количество.
-    Файлы: base_dir/.../Основные|Увеличение/этикетки/{отдел}/{продукт}.xlsx
+    Создаёт файлы этикеток без шаблонов. Формат: 3 столбца — № маршрута, Дом, Количество.
+    Структура: Этикетки на {дата}/{отдел|подотдел}/{продукт}.xlsx
+    Особые режимы (только логика деления, без подстановки в шаблон):
+    - chistchenka: деление по макс. кг на этикетку (дубликаты строк)
+    - sypuchka: два файла на продукт — до/после порога по количеству
     """
-    from openpyxl import Workbook
-
     active = [r for r in routes if not r.get("excluded")]
     if not active:
         return []
@@ -1607,7 +1754,8 @@ def generate_simple_labels(
         key=lambda r: _route_sort_key_labels(str(r.get("routeNum", ""))),
     )
 
-    by_product_dept: dict[tuple[str, str], list[tuple[str, str, object]]] = {}
+    # (prod_name, dept_key, dept_display) -> list of (route_num, house, qty)
+    by_product_dept: dict[tuple[str, str, str], list[tuple[str, str, object]]] = {}
     for route in active_sorted:
         route_num = str(route.get("routeNum", ""))
         address = (route.get("address") or "").strip()
@@ -1621,32 +1769,70 @@ def generate_simple_labels(
             if not dept_display:
                 dept_display = "Прочее"
             qty = prod.get("displayQuantity", prod.get("quantity"))
-            key = (prod_name, dept_display)
+            key = (prod_name, dept_key, dept_display)
             if key not in by_product_dept:
                 by_product_dept[key] = []
             by_product_dept[key].append((route_num, house, qty))
 
-    for (prod_name, dept_display), items in by_product_dept.items():
+    for (prod_name, dept_key, dept_display), items in by_product_dept.items():
         if not items:
             continue
         safe_dept = _safe_filename(dept_display) or "Отдел"
         safe_prod = _safe_filename(prod_name) or "Продукт"
         dept_folder = os.path.join(labels_dir, safe_dept)
         os.makedirs(dept_folder, exist_ok=True)
-        save_path = os.path.join(dept_folder, f"{safe_prod} {date_part}.xlsx")
 
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Этикетки"
-        ws.cell(row=1, column=1, value="№ маршрута")
-        ws.cell(row=1, column=2, value="Дом")
-        ws.cell(row=1, column=3, value="Количество")
-        for row_idx, (route_num, house, qty) in enumerate(items, start=2):
-            ws.cell(row=row_idx, column=1, value=route_num)
-            ws.cell(row=row_idx, column=2, value=house)
-            ws.cell(row=row_idx, column=3, value=qty if qty is not None else "")
-        wb.save(save_path)
-        created.append(save_path)
+        mode = _label_print_mode_for_dept(dept_key, departments_ref)
+        label_rules = _label_rules_for_dept(dept_key, departments_ref)
+
+        if mode == "sypuchka":
+            syp = label_rules.get("sypuchka") or {}
+            threshold = float(syp.get("thresholdKg", 4))
+            label_below = syp.get("labelBelow", "<= 4 кг")
+            label_above = syp.get("labelAbove", "> 4 кг")
+            items_below = []
+            items_above = []
+            for rn, h, q in items:
+                try:
+                    val = float(q) if q is not None else 0.0
+                except (TypeError, ValueError):
+                    val = 0.0
+                if val <= threshold:
+                    items_below.append((rn, h, q))
+                else:
+                    items_above.append((rn, h, q))
+            for title_suffix, item_list in [(label_below, items_below), (label_above, items_above)]:
+                if not item_list:
+                    continue
+                base_name = f"{safe_prod} {title_suffix}"
+                save_path = os.path.join(dept_folder, f"{base_name} {date_part}.xlsx")
+                _write_simple_label_xlsx(item_list, save_path)
+                created.append(save_path)
+
+        elif mode == "chistchenka":
+            ch = label_rules.get("chistchenka") or {}
+            max_kg = float(ch.get("maxKgPerLabel", 5))
+            if max_kg <= 0:
+                max_kg = 5.0
+            expanded: list[tuple[str, str, object]] = []
+            for route_num, house, qty in items:
+                try:
+                    val = float(qty) if qty is not None else 0.0
+                except (TypeError, ValueError):
+                    val = 0.0
+                while val > 0:
+                    take = min(max_kg, val)
+                    expanded.append((route_num, house, take))
+                    val -= take
+            if expanded:
+                save_path = os.path.join(dept_folder, f"{safe_prod} {date_part}.xlsx")
+                _write_simple_label_xlsx(expanded, save_path)
+                created.append(save_path)
+
+        else:
+            save_path = os.path.join(dept_folder, f"{safe_prod} {date_part}.xlsx")
+            _write_simple_label_xlsx(items, save_path)
+            created.append(save_path)
 
     return created
 
@@ -1859,8 +2045,8 @@ def generate_labels_from_templates(
                 if mode == "sypuchka":
                     syp = label_rules.get("sypuchka") or {}
                     threshold = float(syp.get("thresholdKg", 4))
-                    label_below = syp.get("labelBelow", "меньше 4 кг")
-                    label_above = syp.get("labelAbove", "больше 4 кг")
+                    label_below = syp.get("labelBelow", "<= 4 кг")
+                    label_above = syp.get("labelAbove", "> 4 кг")
                     items_below = [(rn, h, q) for rn, h, q in items if q is not None and float(q) <= threshold]
                     items_above = [(rn, h, q) for rn, h, q in items if q is None or float(q) > threshold]
                     for title_suffix, item_list in [(label_below, items_below), (label_above, items_above)]:
@@ -2625,11 +2811,14 @@ _COL_WIDTHS: dict[str, int] = {
 }
 
 
-def _get_col_label(col: dict, dept_key: str | None = None) -> str:
+def _get_col_label(col: dict, dept_key: str | None = None, prod_map: dict | None = None) -> str:
     if col.get("label"):
         return col["label"]
     if col.get("merged") and col.get("productName"):
-        return col["productName"]
+        pname = col["productName"]
+        if prod_map:
+            return data_store.format_product_display_name(pname, prod_map)
+        return pname
     lbl = AVAILABLE_COLS.get(col["field"], col.get("field", ""))
     if col.get("field") == "pcs" and dept_key and data_store.is_subdept_polufabricates(dept_key):
         return "кор."
@@ -2731,7 +2920,7 @@ def get_dept_preview_data(
                     template_cols.append({"field": f, "label": None, "merged": False})
 
     headers = [
-        "Номенклатура" if c.get("field") == "nomenclature" else _get_col_label(c, dept_key)
+        "Номенклатура" if c.get("field") == "nomenclature" else _get_col_label(c, dept_key, prod_map)
         for c in template_cols
     ]
     header_row2: list[str] | None = None
@@ -2775,8 +2964,8 @@ def get_dept_preview_data(
                         if is_address_row:
                             row_vals.append(address)
                         elif prod:
-                            # Только название продукта, без количества и ед. изм.
-                            row_vals.append((prod.get("name") or "").strip())
+                            pname = (prod.get("name") or "").strip()
+                            row_vals.append(data_store.format_product_display_name(pname, prod_map))
                         else:
                             row_vals.append("")
                     elif f == "unit" and prod:
@@ -2815,7 +3004,8 @@ def get_dept_preview_data(
                     elif f == "address":
                         row_vals.append(address if pi == 0 else "")
                     elif f == "product":
-                        row_vals.append(_cell_val(prod.get("name")))
+                        pname = prod.get("name") or ""
+                        row_vals.append(data_store.format_product_display_name(pname, prod_map) or _cell_val(pname))
                     elif f == "unit":
                         row_vals.append(_cell_val(prod.get("unit")))
                     elif f == "quantity":
@@ -2975,7 +3165,7 @@ def _write_dept_sheet_nomenclature(
         ws.write(0, 0, title, styles["title"])
 
     for ci, col_def in enumerate(template_cols):
-        lbl = "Номенклатура" if col_def.get("field") == "nomenclature" else _get_col_label(col_def, dept_key)
+        lbl = "Номенклатура" if col_def.get("field") == "nomenclature" else _get_col_label(col_def, dept_key, prod_map)
         ws.write(1, ci, lbl, styles["header"])
 
     current_row = 2
@@ -2997,7 +3187,7 @@ def _write_dept_sheet_nomenclature(
             else:
                 ws.write(current_row, 0, title, styles["title"])
             for ci, col_def in enumerate(template_cols):
-                lbl = "Номенклатура" if col_def.get("field") == "nomenclature" else _get_col_label(col_def, dept_key)
+                lbl = "Номенклатура" if col_def.get("field") == "nomenclature" else _get_col_label(col_def, dept_key, prod_map)
                 ws.write(current_row + 1, ci, lbl, styles["header"])
             current_row += 2
             rows_on_current_page = 0
@@ -3020,7 +3210,8 @@ def _write_dept_sheet_nomenclature(
                     if is_address_row:
                         ws.write(row, ci, address, styles["header_wrap"])
                     elif prod is not None:
-                        ws.write(row, ci, (prod.get("name") or "").strip(), styles["cell"])
+                        pname = (prod.get("name") or "").strip()
+                        ws.write(row, ci, data_store.format_product_display_name(pname, prod_map or {}), styles["cell"])
                     else:
                         ws.write(row, ci, "", styles["cell"])
                 elif field == "productQty":
@@ -3118,7 +3309,7 @@ def _write_dept_sheet(
         ws.write(0, 0, title, styles["title"])
 
     for ci, col_def in enumerate(template_cols):
-        ws.write(1, ci, _get_col_label(col_def, dept_key), styles["header"])
+        ws.write(1, ci, _get_col_label(col_def, dept_key, prod_map), styles["header"])
 
     # Вторая строка заголовка: ед. изм. для столбцов «продукт (колонка на каждый)»
     has_product_qty = any(c.get("field") == "productQty" and c.get("productName") for c in template_cols)
@@ -3158,7 +3349,7 @@ def _write_dept_sheet(
             else:
                 ws.write(current_row, 0, title, styles["title"])
             for ci, col_def in enumerate(template_cols):
-                ws.write(current_row + 1, ci, _get_col_label(col_def, dept_key), styles["header"])
+                ws.write(current_row + 1, ci, _get_col_label(col_def, dept_key, prod_map), styles["header"])
             if has_product_qty:
                 for ci, col_def in enumerate(template_cols):
                     if col_def.get("field") == "productQty" and col_def.get("productName"):
@@ -3198,7 +3389,8 @@ def _write_dept_sheet(
                             ws.write(row, ci, address, styles["header_wrap"])
 
                 elif field == "product":
-                    ws.write(row, ci, prod.get("name", ""), styles["cell"])
+                    pname = prod.get("name", "")
+                    ws.write(row, ci, data_store.format_product_display_name(pname, prod_map or {}), styles["cell"])
 
                 elif field == "unit":
                     ws.write(row, ci, prod.get("unit", ""), styles["cell"])
@@ -3388,51 +3580,171 @@ def generate_dept_files(
     sort_asc: bool = False,
     date_str: str | None = None,
     replacements: list[dict] | None = None,
+    departments_ref: list | None = None,
 ) -> list[str]:
     """
     Создаёт файлы для всех отделов/подотделов.
-
-    Args:
-        dept_groups: список {"key", "name", "routes": [...]}
-        file_type: "main" | "increase"
-        save_dir: папка сохранения
-        prod_map: dict {name: product_dict}
-        templates: список шаблонов
-        sort_asc: True — по возрастанию, False — по убыванию
-
-    Returns:
-        Список путей к созданным файлам.
+    Для отдела сыпучка — два файла: "> 4 кг" и "<= 4 кг" (хвосты).
     """
     date_str = date_str or get_routes_date_str()
     type_lbl = _type_label(file_type)
+    depts_ref = departments_ref or []
 
     created: list[str] = []
     styles = _get_styles()
 
+    route_categories = []
+    if file_type == "main":
+        route_categories = [("ШК",), ("СД",)]
+    else:
+        route_categories = [(None,)]
+
     for group in dept_groups:
         parent = group.get("parent_dept_name") if group.get("is_subdept") else None
-        save_path = get_dept_routes_path(
-            save_dir, file_type, group["name"], date_str, parent_dept_name=parent
-        )
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        dept_key = group.get("key", "")
 
-        routes = [r for r in group["routes"] if not r.get("excluded", False)]
-        _apply_pcs(routes, prod_map, group_dept_key=group.get("key"))
-        for r in routes:
+        all_routes = [r for r in group["routes"] if not r.get("excluded", False)]
+        _apply_pcs(all_routes, prod_map, group_dept_key=dept_key)
+        for r in all_routes:
             r["products"] = merge_replacement_pairs_for_display(
                 r.get("products", []), replacements or []
             )
 
-        template_cols = _get_template_cols(group["key"], templates)
+        template_cols = _get_template_cols(dept_key, templates)
+        mode = _label_print_mode_for_dept(dept_key, depts_ref)
+        label_rules = _label_rules_for_dept(dept_key, depts_ref)
 
-        wb = xlwt.Workbook(encoding="utf-8")
-        ws = wb.add_sheet(_safe_sheet_name(group["name"]))
-        _apply_page_margins(ws, for_labels=False)
-        _write_dept_by_format(ws, routes, group["name"], date_str, type_lbl,
-                              template_cols, styles, sort_asc, prod_map, group["key"],
-                              templates=templates)
-        _safe_save_workbook(wb, save_path)
-        created.append(save_path)
+        for (route_cat,) in route_categories:
+            routes = all_routes if route_cat is None else [r for r in all_routes if (r.get("routeCategory") or "ШК") == route_cat]
+            if not routes:
+                continue
+
+            if mode == "sypuchka":
+                syp = label_rules.get("sypuchka") or {}
+                threshold = float(syp.get("thresholdKg", 4))
+                label_above = syp.get("labelAbove", "> 4 кг")
+                label_below = syp.get("labelBelow", "<= 4 кг")
+                routes_above, routes_below = _split_routes_by_sypuchka(routes, threshold)
+                for routes_part, suffix in [(routes_above, label_above), (routes_below, label_below)]:
+                    if not routes_part:
+                        continue
+                    save_path = get_dept_routes_path(
+                        save_dir, file_type, group["name"], date_str,
+                        parent_dept_name=parent, suffix=suffix,
+                        route_category=route_cat,
+                    )
+                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                    wb = xlwt.Workbook(encoding="utf-8")
+                    ws = wb.add_sheet(_safe_sheet_name(f"{group['name']} {suffix}"))
+                    _apply_page_margins(ws, for_labels=False)
+                    _write_dept_by_format(ws, routes_part, group["name"], date_str, type_lbl,
+                                          template_cols, styles, sort_asc, prod_map, dept_key,
+                                          templates=templates)
+                    _safe_save_workbook(wb, save_path)
+                    created.append(save_path)
+
+                    # По продуктам: для каждого продукта — два файла (> 4 кг, <= 4 кг)
+                for prod_name in {p.get("name", "") for r in routes_part for p in r.get("products", []) if p.get("name")}:
+                    routes_one = [
+                        {"routeNum": r.get("routeNum", ""), "address": r.get("address", ""),
+                         "routeCategory": r.get("routeCategory") or "ШК",
+                         "products": [p for p in r.get("products", []) if p.get("name") == prod_name]}
+                        for r in routes_part if any(p.get("name") == prod_name for p in r.get("products", []))
+                    ]
+                    if not routes_one:
+                        continue
+                    by_product_path = get_dept_by_product_path(
+                        save_dir, file_type, prod_name, group["name"], date_str,
+                        parent_dept_name=parent, suffix=suffix,
+                        route_category=route_cat,
+                    )
+                    os.makedirs(os.path.dirname(by_product_path), exist_ok=True)
+                    wb2 = xlwt.Workbook(encoding="utf-8")
+                    ws2 = wb2.add_sheet(_safe_sheet_name(prod_name))
+                    _apply_page_margins(ws2, for_labels=False)
+                    _write_dept_by_format(ws2, routes_one, group["name"], date_str, type_lbl,
+                                          template_cols, styles, sort_asc, prod_map, dept_key,
+                                          templates=templates)
+                    _safe_save_workbook(wb2, by_product_path)
+                    created.append(by_product_path)
+            else:
+                save_mode = data_store.get_save_mode_by_dept_category(
+                    dept_key, route_cat if route_cat else "ШК"
+                )
+                unique_prods = {p.get("name", "") for r in routes for p in r.get("products", []) if p.get("name")}
+
+                if save_mode == "all":
+                    save_path = get_dept_routes_path(
+                        save_dir, file_type, group["name"], date_str, parent_dept_name=parent,
+                        route_category=route_cat,
+                    )
+                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                    wb = xlwt.Workbook(encoding="utf-8")
+                    ws = wb.add_sheet(_safe_sheet_name(group["name"]))
+                    _apply_page_margins(ws, for_labels=False)
+                    _write_dept_by_format(ws, routes, group["name"], date_str, type_lbl,
+                                          template_cols, styles, sort_asc, prod_map, dept_key,
+                                          templates=templates)
+                    _safe_save_workbook(wb, save_path)
+                    created.append(save_path)
+                elif save_mode == "groups":
+                    groups_list = data_store.get_product_file_groups(dept_key, route_cat)
+                    if not groups_list:
+                        groups_list = [[p] for p in sorted(unique_prods, key=lambda x: x.lower())]
+                    for gi, product_names in enumerate(groups_list):
+                        if not product_names:
+                            continue
+                        prod_set = set(product_names)
+                        routes_filtered = []
+                        for r in routes:
+                            dept_prods = [p for p in r.get("products", []) if p.get("name") in prod_set]
+                            if not dept_prods:
+                                continue
+                            routes_filtered.append({
+                                "routeNum": r.get("routeNum", ""), "address": r.get("address", ""),
+                                "routeCategory": r.get("routeCategory") or "ШК",
+                                "products": list(dept_prods),
+                            })
+                        if not routes_filtered:
+                            continue
+                        grp_label = f"Группа {gi + 1}" if len(groups_list) > 1 else product_names[0]
+                        save_path = get_dept_routes_path(
+                            save_dir, file_type, group["name"], date_str, parent_dept_name=parent,
+                            route_category=route_cat, suffix=grp_label,
+                        )
+                        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                        wb = xlwt.Workbook(encoding="utf-8")
+                        ws = wb.add_sheet(_safe_sheet_name(grp_label[:31]))
+                        _apply_page_margins(ws, for_labels=False)
+                        _write_dept_by_format(ws, routes_filtered, group["name"], date_str, type_lbl,
+                                              template_cols, styles, sort_asc, prod_map, dept_key,
+                                              templates=templates)
+                        _safe_save_workbook(wb, save_path)
+                        created.append(save_path)
+                else:
+                    for prod_name in unique_prods:
+                        routes_one = [
+                            {"routeNum": r.get("routeNum", ""), "address": r.get("address", ""),
+                             "routeCategory": r.get("routeCategory") or "ШК",
+                             "products": [p for p in r.get("products", []) if p.get("name") == prod_name]}
+                            for r in routes if any(p.get("name") == prod_name for p in r.get("products", []))
+                        ]
+                        if not routes_one:
+                            continue
+                        by_product_path = get_dept_by_product_path(
+                            save_dir, file_type, prod_name, group["name"], date_str,
+                            parent_dept_name=parent,
+                            route_category=route_cat,
+                        )
+                        os.makedirs(os.path.dirname(by_product_path), exist_ok=True)
+                        wb2 = xlwt.Workbook(encoding="utf-8")
+                        ws2 = wb2.add_sheet(_safe_sheet_name(prod_name))
+                        _apply_page_margins(ws2, for_labels=False)
+                        _write_dept_by_format(ws2, routes_one, group["name"], date_str, type_lbl,
+                                              template_cols, styles, sort_asc, prod_map, dept_key,
+                                              templates=templates)
+                        _safe_save_workbook(wb2, by_product_path)
+                        created.append(by_product_path)
 
     return created
 
@@ -3447,43 +3759,123 @@ def generate_dept_files_by_products(
     sort_asc: bool = False,
     date_str: str | None = None,
     replacements: list[dict] | None = None,
+    departments_ref: list | None = None,
 ) -> list[str]:
     """
-    Создаёт файлы по группам продуктов (режим «разделить по продуктам»).
-    Разделение только для отделов/подотделов с Шаблоном 2. Остальные — один файл как обычно.
-    product_groups: {dept_key: [[p1, p2], [p3], [p4, p5]]} — группы продуктов.
+    Создаёт файлы по группам продуктов. Для отдела сыпучка — два файла: "> 4 кг" и "<= 4 кг".
     """
     date_str = date_str or get_routes_date_str()
     type_lbl = _type_label(file_type)
+    depts_ref = departments_ref or []
     created: list[str] = []
     styles = _get_styles()
+
+    route_categories = [("ШК",), ("СД",)] if file_type == "main" else [(None,)]
 
     for group in dept_groups:
         dept_key = group.get("key", "")
         parent = group.get("parent_dept_name") if group.get("is_subdept") else None
         base_routes = [r for r in group["routes"] if not r.get("excluded", False)]
+        mode = _label_print_mode_for_dept(dept_key, depts_ref)
+        label_rules = _label_rules_for_dept(dept_key, depts_ref)
+        syp = label_rules.get("sypuchka") or {} if mode == "sypuchka" else {}
+        threshold = float(syp.get("thresholdKg", 4)) if mode == "sypuchka" else 4.0
+        label_above = syp.get("labelAbove", "> 4 кг") if mode == "sypuchka" else "> 4 кг"
+        label_below = syp.get("labelBelow", "<= 4 кг") if mode == "sypuchka" else "<= 4 кг"
 
         if not dept_has_template_2(dept_key, templates):
-            # Шаблон не 2 — один файл на отдел (как в generate_dept_files)
-            routes = copy.deepcopy(base_routes)
-            _apply_pcs(routes, prod_map, group_dept_key=dept_key)
-            for r in routes:
+            all_routes = copy.deepcopy(base_routes)
+            _apply_pcs(all_routes, prod_map, group_dept_key=dept_key)
+            for r in all_routes:
                 r["products"] = merge_replacement_pairs_for_display(
                     r.get("products", []), replacements or []
                 )
-            save_path = get_dept_routes_path(
-                save_dir, file_type, group["name"], date_str, parent_dept_name=parent
-            )
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
             template_cols = _get_template_cols(dept_key, templates)
-            wb = xlwt.Workbook(encoding="utf-8")
-            ws = wb.add_sheet(_safe_sheet_name(group["name"]))
-            _apply_page_margins(ws, for_labels=False)
-            _write_dept_by_format(ws, routes, group["name"], date_str, type_lbl,
-                                  template_cols, styles, sort_asc, prod_map, dept_key,
-                                  templates=templates)
-            _safe_save_workbook(wb, save_path)
-            created.append(save_path)
+
+            for (route_cat,) in route_categories:
+                routes = all_routes if route_cat is None else [r for r in all_routes if (r.get("routeCategory") or "ШК") == route_cat]
+                if not routes:
+                    continue
+
+                if mode == "sypuchka":
+                    routes_above, routes_below = _split_routes_by_sypuchka(routes, threshold)
+                    for routes_part, suffix in [(routes_above, label_above), (routes_below, label_below)]:
+                        if not routes_part:
+                            continue
+                        save_path = get_dept_routes_path(
+                            save_dir, file_type, group["name"], date_str,
+                            parent_dept_name=parent, suffix=suffix,
+                            route_category=route_cat,
+                        )
+                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                    wb = xlwt.Workbook(encoding="utf-8")
+                    ws = wb.add_sheet(_safe_sheet_name(f"{group['name']} {suffix}"))
+                    _apply_page_margins(ws, for_labels=False)
+                    _write_dept_by_format(ws, routes_part, group["name"], date_str, type_lbl,
+                                          template_cols, styles, sort_asc, prod_map, dept_key,
+                                          templates=templates)
+                    _safe_save_workbook(wb, save_path)
+                    created.append(save_path)
+                    for prod_name in {p.get("name", "") for r in routes_part for p in r.get("products", []) if p.get("name")}:
+                        routes_one = [
+                            {"routeNum": r.get("routeNum", ""), "address": r.get("address", ""),
+                             "routeCategory": r.get("routeCategory") or "ШК",
+                             "products": [p for p in r.get("products", []) if p.get("name") == prod_name]}
+                            for r in routes_part if any(p.get("name") == prod_name for p in r.get("products", []))
+                        ]
+                        if not routes_one:
+                            continue
+                        bp_path = get_dept_by_product_path(
+                            save_dir, file_type, prod_name, group["name"], date_str,
+                            parent_dept_name=parent, suffix=suffix,
+                            route_category=route_cat,
+                        )
+                        os.makedirs(os.path.dirname(bp_path), exist_ok=True)
+                        wb2 = xlwt.Workbook(encoding="utf-8")
+                        ws2 = wb2.add_sheet(_safe_sheet_name(prod_name))
+                        _apply_page_margins(ws2, for_labels=False)
+                        _write_dept_by_format(ws2, routes_one, group["name"], date_str, type_lbl,
+                                              template_cols, styles, sort_asc, prod_map, dept_key,
+                                              templates=templates)
+                        _safe_save_workbook(wb2, bp_path)
+                        created.append(bp_path)
+                else:
+                    save_path = get_dept_routes_path(
+                        save_dir, file_type, group["name"], date_str, parent_dept_name=parent,
+                        route_category=route_cat,
+                    )
+                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                    wb = xlwt.Workbook(encoding="utf-8")
+                    ws = wb.add_sheet(_safe_sheet_name(group["name"]))
+                    _apply_page_margins(ws, for_labels=False)
+                    _write_dept_by_format(ws, routes, group["name"], date_str, type_lbl,
+                                          template_cols, styles, sort_asc, prod_map, dept_key,
+                                          templates=templates)
+                    _safe_save_workbook(wb, save_path)
+                    created.append(save_path)
+                    for prod_name in {p.get("name", "") for r in routes for p in r.get("products", []) if p.get("name")}:
+                        routes_one = [
+                            {"routeNum": r.get("routeNum", ""), "address": r.get("address", ""),
+                             "routeCategory": r.get("routeCategory") or "ШК",
+                             "products": [p for p in r.get("products", []) if p.get("name") == prod_name]}
+                            for r in routes if any(p.get("name") == prod_name for p in r.get("products", []))
+                        ]
+                        if not routes_one:
+                            continue
+                        by_product_path = get_dept_by_product_path(
+                            save_dir, file_type, prod_name, group["name"], date_str,
+                            parent_dept_name=parent,
+                            route_category=route_cat,
+                        )
+                        os.makedirs(os.path.dirname(by_product_path), exist_ok=True)
+                        wb2 = xlwt.Workbook(encoding="utf-8")
+                        ws2 = wb2.add_sheet(_safe_sheet_name(prod_name))
+                        _apply_page_margins(ws2, for_labels=False)
+                        _write_dept_by_format(ws2, routes_one, group["name"], date_str, type_lbl,
+                                              template_cols, styles, sort_asc, prod_map, dept_key,
+                                              templates=templates)
+                        _safe_save_workbook(wb2, by_product_path)
+                        created.append(by_product_path)
             continue
 
         unique_products: list[str] = []
@@ -3518,29 +3910,120 @@ def generate_dept_files_by_products(
             if not routes_filtered:
                 continue
 
-            routes = copy.deepcopy(routes_filtered)
-            _apply_pcs(routes, prod_map, group_dept_key=dept_key)
-            for r in routes:
-                r["products"] = merge_replacement_pairs_for_display(
-                    r.get("products", []), replacements or []
-                )
+            for (route_cat,) in route_categories:
+                cat_routes = routes_filtered if route_cat is None else [r for r in routes_filtered if (r.get("routeCategory") or "ШК") == route_cat]
+                if not cat_routes:
+                    continue
 
-            save_path = get_dept_product_file_path(
-                save_dir, file_type, group["name"], product_names, date_str,
-                parent_dept_name=parent,
-            )
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                routes = copy.deepcopy(cat_routes)
+                _apply_pcs(routes, prod_map, group_dept_key=dept_key)
+                for r in routes:
+                    r["products"] = merge_replacement_pairs_for_display(
+                        r.get("products", []), replacements or []
+                    )
 
-            template_cols = _get_template_cols(dept_key, templates)
-            sheet_title = ", ".join(product_names) if len(product_names) <= 3 else f"{product_names[0]} и др."
-            wb = xlwt.Workbook(encoding="utf-8")
-            ws = wb.add_sheet(_safe_sheet_name(sheet_title))
-            _apply_page_margins(ws, for_labels=False)
-            _write_dept_by_format(ws, routes, group["name"], date_str, type_lbl,
-                                  template_cols, styles, sort_asc, prod_map, dept_key,
-                                  templates=templates)
-            _safe_save_workbook(wb, save_path)
-            created.append(save_path)
+                template_cols = _get_template_cols(dept_key, templates)
+                sheet_base = ", ".join(product_names) if len(product_names) <= 3 else f"{product_names[0]} и др."
+
+                if mode == "sypuchka":
+                    routes_above, routes_below = _split_routes_by_sypuchka(routes, threshold)
+                    for routes_part, suffix in [(routes_above, label_above), (routes_below, label_below)]:
+                        if not routes_part:
+                            continue
+                        date_part = date_str or get_routes_date_str()
+                        type_dir = get_routes_type_folder(save_dir, file_type, date_str, route_cat)
+                    if parent:
+                        dept_folder = os.path.join(
+                            type_dir,
+                            _safe_filename(parent),
+                            _safe_filename(group["name"]),
+                        )
+                        safe_dept = _safe_filename(group["name"])
+                        products_part = ", ".join(product_names)
+                        safe_products = _safe_filename(products_part)
+                        if len(safe_products) > 80:
+                            safe_products = safe_products[:77] + "..."
+                        safe_suffix = _safe_filename(suffix)
+                        filename = f"Сборка {safe_dept} — {safe_products} {safe_suffix} {date_part}.xls"
+                    else:
+                        dept_folder = os.path.join(type_dir, _safe_filename(group["name"]))
+                        products_part = ", ".join(product_names)
+                        safe_products = _safe_filename(products_part)
+                        if len(safe_products) > 80:
+                            safe_products = safe_products[:77] + "..."
+                        safe_suffix = _safe_filename(suffix)
+                        filename = f"Сборка {safe_products} {safe_suffix} {date_part}.xls"
+                    save_path = os.path.join(dept_folder, filename)
+                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                    wb = xlwt.Workbook(encoding="utf-8")
+                    ws = wb.add_sheet(_safe_sheet_name(f"{sheet_base} {suffix}"))
+                    _apply_page_margins(ws, for_labels=False)
+                    _write_dept_by_format(ws, routes_part, group["name"], date_str, type_lbl,
+                                          template_cols, styles, sort_asc, prod_map, dept_key,
+                                          templates=templates)
+                    _safe_save_workbook(wb, save_path)
+                    created.append(save_path)
+                    for prod_name in product_names:
+                        routes_one = [
+                            {"routeNum": r.get("routeNum", ""), "address": r.get("address", ""),
+                             "routeCategory": r.get("routeCategory") or "ШК",
+                             "products": [p for p in r.get("products", []) if p.get("name") == prod_name]}
+                            for r in routes_part if any(p.get("name") == prod_name for p in r.get("products", []))
+                        ]
+                        if not routes_one:
+                            continue
+                        bp_path = get_dept_by_product_path(
+                            save_dir, file_type, prod_name, group["name"], date_str,
+                            parent_dept_name=parent, suffix=suffix,
+                            route_category=route_cat,
+                        )
+                        os.makedirs(os.path.dirname(bp_path), exist_ok=True)
+                        wb2 = xlwt.Workbook(encoding="utf-8")
+                        ws2 = wb2.add_sheet(_safe_sheet_name(prod_name))
+                        _apply_page_margins(ws2, for_labels=False)
+                        _write_dept_by_format(ws2, routes_one, group["name"], date_str, type_lbl,
+                                              template_cols, styles, sort_asc, prod_map, dept_key,
+                                              templates=templates)
+                        _safe_save_workbook(wb2, bp_path)
+                        created.append(bp_path)
+                else:
+                    save_path = get_dept_product_file_path(
+                        save_dir, file_type, group["name"], product_names, date_str,
+                        parent_dept_name=parent,
+                        route_category=route_cat,
+                    )
+                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                    wb = xlwt.Workbook(encoding="utf-8")
+                    ws = wb.add_sheet(_safe_sheet_name(sheet_base))
+                    _apply_page_margins(ws, for_labels=False)
+                    _write_dept_by_format(ws, routes, group["name"], date_str, type_lbl,
+                                          template_cols, styles, sort_asc, prod_map, dept_key,
+                                          templates=templates)
+                    _safe_save_workbook(wb, save_path)
+                    created.append(save_path)
+                    for prod_name in product_names:
+                        routes_one = [
+                            {"routeNum": r.get("routeNum", ""), "address": r.get("address", ""),
+                             "routeCategory": r.get("routeCategory") or "ШК",
+                             "products": [p for p in r.get("products", []) if p.get("name") == prod_name]}
+                            for r in routes if any(p.get("name") == prod_name for p in r.get("products", []))
+                        ]
+                        if not routes_one:
+                            continue
+                        bp_path = get_dept_by_product_path(
+                            save_dir, file_type, prod_name, group["name"], date_str,
+                            parent_dept_name=parent,
+                            route_category=route_cat,
+                        )
+                        os.makedirs(os.path.dirname(bp_path), exist_ok=True)
+                        wb2 = xlwt.Workbook(encoding="utf-8")
+                        ws2 = wb2.add_sheet(_safe_sheet_name(prod_name))
+                        _apply_page_margins(ws2, for_labels=False)
+                        _write_dept_by_format(ws2, routes_one, group["name"], date_str, type_lbl,
+                                              template_cols, styles, sort_asc, prod_map, dept_key,
+                                              templates=templates)
+                        _safe_save_workbook(wb2, bp_path)
+                        created.append(bp_path)
 
     return created
 
@@ -3650,33 +4133,132 @@ def generate_pcs_compare_report(
     date_str: str | None = None,
 ) -> list[str]:
     """
-    Создаёт отдельные отчёты по Шт для Основные и Увеличение.
-    Файлы сохраняются в папках Основные и Увеличение соответственно.
+    Создаёт отчёты по Шт. Для main: в папках Школы и Сады. Для increase: в Увеличение.
     Возвращает список путей к созданным файлам.
     """
     date_str = date_str or get_routes_date_str()
     created: list[str] = []
+    main_routes = main_routes or []
+    increase_routes = increase_routes or []
 
-    main_type_dir = os.path.join(day_dir, "Основные")
-    main_path = os.path.join(main_type_dir, f"Отчет Шт Основные {date_str}.xls")
-    _write_single_pcs_report(
-        main_path,
-        main_routes or [],
-        products_ref or [],
-        "Основные",
-        date_str,
+    if main_routes:
+        for cat, folder in [("ШК", "Школы"), ("СД", "Сады")]:
+            cat_routes = [r for r in main_routes if (r.get("routeCategory") or "ШК") == cat]
+            type_dir = os.path.join(day_dir, folder)
+            report_path = os.path.join(type_dir, f"Отчет Шт {folder} {date_str}.xls")
+            _write_single_pcs_report(
+                report_path,
+                cat_routes,
+                products_ref or [],
+                folder,
+                date_str,
+            )
+            created.append(report_path)
+
+    if increase_routes:
+        inc_type_dir = os.path.join(day_dir, "Увеличение")
+        inc_path = os.path.join(inc_type_dir, f"Отчет Шт Увеличение {date_str}.xls")
+        _write_single_pcs_report(
+            inc_path,
+            increase_routes,
+            products_ref or [],
+            "Увеличение",
+            date_str,
+        )
+        created.append(inc_path)
+
+    savings_paths = generate_savings_report(
+        day_dir, main_routes or [], increase_routes or [],
+        products_ref or [], date_str,
     )
-    created.append(main_path)
+    created.extend(savings_paths)
 
-    inc_type_dir = os.path.join(day_dir, "Увеличение")
-    inc_path = os.path.join(inc_type_dir, f"Отчет Шт Увеличение {date_str}.xls")
-    _write_single_pcs_report(
-        inc_path,
-        increase_routes or [],
-        products_ref or [],
-        "Увеличение",
-        date_str,
-    )
-    created.append(inc_path)
+    return created
 
+
+def _compute_savings_totals(routes: list[dict], products_ref: list[dict]) -> dict[str, tuple[float, str]]:
+    """
+    Считает сэкономленное количество по продуктам (ед. изм. не «шт»).
+    Возвращает {product_name: (saved_qty, unit)}.
+    """
+    prod_map = {p.get("name"): p for p in (products_ref or []) if p.get("name")}
+    totals: dict[str, float] = {}
+    units: dict[str, str] = {}
+    for route in routes or []:
+        if route.get("excluded"):
+            continue
+        addr = (route.get("address") or "").strip()
+        savings_pct = data_store.get_savings_percent_for_address(addr)
+        if savings_pct <= 0:
+            continue
+        for prod in route.get("products", []):
+            name = prod.get("name", "")
+            if not name:
+                continue
+            sp = prod_map.get(name, {})
+            unit = (prod.get("unit") or sp.get("unit") or "").strip()
+            if unit.lower() == "шт":
+                continue
+            try:
+                qty = float(prod.get("quantity") or 0)
+            except (ValueError, TypeError):
+                continue
+            saved = qty * (savings_pct / 100.0)
+            totals[name] = totals.get(name, 0.0) + saved
+            units[name] = unit
+    return {n: (totals[n], units.get(n, "")) for n in totals}
+
+
+def generate_savings_report(
+    day_dir: str,
+    main_routes: list[dict],
+    increase_routes: list[dict],
+    products_ref: list[dict],
+    date_str: str | None = None,
+) -> list[str]:
+    """
+    Создаёт отчёты по экономии для Школ и Садов.
+    Файлы: day_dir/Школы/Отчет экономия {date}.xls, day_dir/Сады/Отчет экономия {date}.xls.
+    Возвращает список путей к созданным файлам.
+    """
+    date_str = date_str or get_routes_date_str()
+    created: list[str] = []
+    prod_map = {p.get("name"): p for p in (products_ref or []) if p.get("name")}
+
+    for cat, folder in [("ШК", "Школы"), ("СД", "Сады")]:
+        main_cat = [r for r in (main_routes or []) if (r.get("routeCategory") or "ШК") == cat]
+        inc_cat = [r for r in (increase_routes or []) if (r.get("routeCategory") or "ШК") == cat]
+        main_totals = _compute_savings_totals(main_cat, products_ref)
+        inc_totals = _compute_savings_totals(inc_cat, products_ref)
+        all_products = sorted(set(main_totals.keys()) | set(inc_totals.keys()), key=lambda x: x.lower())
+        if not all_products:
+            continue
+        report_path = os.path.join(day_dir, folder, f"Отчет экономия {date_str}.xls")
+        wb = xlwt.Workbook(encoding="utf-8")
+        ws = wb.add_sheet("Экономия")
+        _apply_page_margins(ws, for_labels=False)
+        styles = _get_styles()
+        ws.write_merge(0, 0, 0, 2, f"Отчет по экономии {folder} {date_str}", styles["title"])
+        ws.write(1, 0, "Продукт", styles["header"])
+        ws.write(1, 1, folder, styles["header"])
+        ws.write(1, 2, "Увеличение", styles["header"])
+        row = 2
+        for name in all_products:
+            m_qty, m_unit = main_totals.get(name, (0.0, ""))
+            i_qty, i_unit = inc_totals.get(name, (0.0, ""))
+            fallback_unit = (prod_map.get(name, {}).get("unit") or "").strip()
+            m_unit = m_unit or fallback_unit
+            i_unit = i_unit or m_unit
+            m_str = f"{m_qty:.1f} {m_unit}".strip() if m_qty else ""
+            i_str = f"{i_qty:.1f} {i_unit}".strip() if i_qty else ""
+            ws.write(row, 0, name, styles["cell"])
+            ws.write(row, 1, m_str, styles["cell"])
+            ws.write(row, 2, i_str, styles["cell"])
+            row += 1
+        _set_col_width(ws, 0, 36)
+        _set_col_width(ws, 1, 24)
+        _set_col_width(ws, 2, 24)
+        os.makedirs(os.path.dirname(report_path), exist_ok=True)
+        wb.save(report_path)
+        created.append(report_path)
     return created

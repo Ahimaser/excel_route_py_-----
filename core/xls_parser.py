@@ -25,11 +25,13 @@ xls_parser.py — Парсер XLS файлов маршрутов.
 """
 from __future__ import annotations
 
-import logging
-import re
 import itertools
-import xlrd
+import logging
+import math
+import re
 from typing import Any
+
+import xlrd
 
 log = logging.getLogger("xls_parser")
 
@@ -190,6 +192,10 @@ def parse_file(file_path: str) -> dict[str, Any]:
                     quantity = float(qty_str.replace(",", "."))
                 except ValueError:
                     pass
+
+            unit_lower = (unit or "").strip().lower()
+            if quantity is not None and unit_lower == "шт":
+                quantity = int(math.floor(quantity) if quantity < 5 else math.ceil(quantity))
 
             products.append({"name": name, "unit": unit, "quantity": quantity})
 

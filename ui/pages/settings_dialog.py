@@ -445,7 +445,11 @@ class PcsSettingsDialog(QDialog):
             self.spin_tail_sd.setEnabled(False)
             return
         unit = (prod.get("unit") or "").strip().lower()
-        self.lbl_product.setText(f"{prod['name']}  ({prod.get('unit', '')})")
+        prod_map = {prod["name"]: prod}
+        display = data_store.format_product_display_name(prod["name"], prod_map)
+        if display == prod["name"] and prod.get("unit"):
+            display = f"{prod['name']}  ({prod.get('unit', '')})"
+        self.lbl_product.setText(display)
         if unit == "шт":
             self.lbl_hint.setText(
                 "Для продуктов с единицей измерения «шт» настройка «Кол-во в шт» не применяется."

@@ -36,8 +36,8 @@ class LabelsSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Настройки этикеток")
-        self.setMinimumSize(480, 420)
-        self.resize(560, 500)
+        self.setMinimumSize(520, 420)
+        self.resize(600, 500)
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setSizeGripEnabled(True)
         self._updating = False
@@ -52,8 +52,8 @@ class LabelsSettingsDialog(QDialog):
     def _build_ui(self):
         content = QWidget()
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(20, 16, 20, 16)
-        lay.setSpacing(12)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(16)
         title_row = QHBoxLayout()
         title_row.addWidget(QLabel("Настройки этикеток"))
         title_row.addWidget(hint_icon_button(
@@ -92,6 +92,10 @@ class LabelsSettingsDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
+        btn_cancel = QPushButton("Отмена")
+        btn_cancel.setObjectName("btnSecondary")
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(btn_cancel)
         btn_save = QPushButton("Сохранить")
         btn_save.setObjectName("btnPrimary")
         btn_save.setDefault(True)
@@ -193,9 +197,13 @@ class LabelRulesDialog(QDialog):
         super().__init__(parent)
         self.node_obj = node_obj
         self.setWindowTitle(f"Условия этикеток: {node_obj.get('name', '')}")
-        self.setMinimumWidth(420)
+        self.setMinimumSize(480, 380)
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(16)
 
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("Режим:"))
         self.combo_mode = QComboBox()
         self.combo_mode.addItem("По умолчанию (без особых правил)", "default")
         self.combo_mode.addItem("Чищенка (деление по весу на этикетке)", "chistchenka")
@@ -207,9 +215,19 @@ class LabelRulesDialog(QDialog):
         if idx >= 0:
             self.combo_mode.setCurrentIndex(idx)
         self.combo_mode.currentIndexChanged.connect(self._on_mode_changed)
-        form = QFormLayout()
-        form.addRow("Режим:", self.combo_mode)
-        lay.addLayout(form)
+        mode_row.addWidget(self.combo_mode)
+        mode_row.addWidget(hint_icon_button(
+            self,
+            "Режимы: чищенка — деление по весу; сыпучка — два файла по порогу.",
+            "Инструкция — Условия этикеток\n\n"
+            "1. «По умолчанию» — без особых правил, стандартные этикетки.\n"
+            "2. «Чищенка» — деление количества по весу на этикетке (макс. кг на этикетку). "
+            "Каждый продукт — отдельный файл.\n"
+            "3. «Сыпучка» — два файла: до порога и после порога (кг). Подписи настраиваются.",
+            "Инструкция",
+        ))
+        mode_row.addStretch()
+        lay.addLayout(mode_row)
 
         rules = node_obj.get("labelRules") or {}
         ch = rules.get("chistchenka") or {}
@@ -236,12 +254,12 @@ class LabelRulesDialog(QDialog):
         self.spin_threshold.setSuffix(" кг")
         form_sy.addRow("Порог (кг):", self.spin_threshold)
         self.le_label_below = QLineEdit()
-        self.le_label_below.setPlaceholderText("меньше 4 кг")
-        self.le_label_below.setText(sy.get("labelBelow", "меньше 4 кг"))
-        form_sy.addRow("Подпись для «≤ порога»:", self.le_label_below)
+        self.le_label_below.setPlaceholderText("<= 4 кг")
+        self.le_label_below.setText(sy.get("labelBelow", "<= 4 кг"))
+        form_sy.addRow("Подпись для «≤ порога» (хвосты):", self.le_label_below)
         self.le_label_above = QLineEdit()
-        self.le_label_above.setPlaceholderText("больше 4 кг")
-        self.le_label_above.setText(sy.get("labelAbove", "больше 4 кг"))
+        self.le_label_above.setPlaceholderText("> 4 кг")
+        self.le_label_above.setText(sy.get("labelAbove", "> 4 кг"))
         form_sy.addRow("Подпись для «> порога»:", self.le_label_above)
         lay.addWidget(self.gr_sy)
 
@@ -249,6 +267,10 @@ class LabelRulesDialog(QDialog):
 
         btn_lay = QHBoxLayout()
         btn_lay.addStretch()
+        btn_cancel = QPushButton("Отмена")
+        btn_cancel.setObjectName("btnSecondary")
+        btn_cancel.clicked.connect(self.reject)
+        btn_lay.addWidget(btn_cancel)
         btn_ok = QPushButton("Сохранить")
         btn_ok.setObjectName("btnPrimary")
         btn_ok.setDefault(True)
@@ -275,8 +297,8 @@ class LabelRulesDialog(QDialog):
             },
             "sypuchka": {
                 "thresholdKg": self.spin_threshold.value(),
-                "labelBelow": (self.le_label_below.text() or "меньше 4 кг").strip(),
-                "labelAbove": (self.le_label_above.text() or "больше 4 кг").strip(),
+                "labelBelow": (self.le_label_below.text() or "<= 4 кг").strip(),
+                "labelAbove": (self.le_label_above.text() or "> 4 кг").strip(),
             },
         }
         self.accept()
